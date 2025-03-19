@@ -196,12 +196,12 @@ if __name__ == "__main__":
     # Generate ArUco markers for printing when this file is executed directly
     generate_aruco_markers()
 
-    print("\nInstructions for setting up your playground:")
+    print("\nInstructions for setting up the playground:")
     print("1. Print the generated ArUco markers (aruco_markers folder)")
-    print("2. Place markers at the four corners of your playground area")
+    print("2. Place markers at the four corners of the playground area")
     print("   - Marker 0: Top-left corner")
     print("   - Marker 1: Top-right corner")
     print("   - Marker 2: Bottom-right corner")
     print("   - Marker 3: Bottom-left corner")
-    print("3. Place marker 42 on your robot")
+    print("3. Place marker 42 on the robot")
     print("\nMake sure markers are placed flat and are clearly visible to the camera")

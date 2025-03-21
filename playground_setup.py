@@ -37,9 +37,9 @@ def generate_aruco_markers(output_dir='aruco_markers', marker_ids=None, size=400
         marker_img = cv2.aruco.generateImageMarker(aruco_dict, marker_id, size, marker_img, 1)
 
         # Add text label
-        labeled_img = cv2.copyMakeBorder(marker_img, 40, 0, 0, 0, cv2.BORDER_CONSTANT, value=255)
+        labeled_img = cv2.copyMakeBorder(marker_img, 40, 0, 0, 0, cv2.BORDER_CONSTANT, value=(255,))
         cv2.putText(labeled_img, f"ArUco Marker ID: {marker_id}", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, 0, 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0, 0), 2)
 
         # Save marker
         filename = os.path.join(output_dir, f"aruco_marker_{marker_id}.png")

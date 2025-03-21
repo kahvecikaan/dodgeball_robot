@@ -1,243 +1,208 @@
+"""
+Ball detection test script for the ball-dodging robot vision system.
+Tests both color-based and Hough circle detection methods.
+"""
+
 import cv2
 import numpy as np
 import time
+from object_detection import detect_ball_color, detect_ball_hough, load_ball_color
 
 
-def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
+def test_ball_detection(camera_index=0):
     """
-    Detect a ball in the frame based on color thresholding.
+    Test ball detection methods with a live camera feed.
+    Displays both color-based and Hough circle detection results.
 
     Args:
-        frame: Camera frame (BGR)
-        lower_color: Lower bound of color range in HSV
-        upper_color: Upper bound of color range in HSV
-        min_radius: Minimum radius in pixels to consider a valid ball
-
-    Returns:
-        ball_pos: (x, y, radius) of the detected ball, or None if not detected
-        mask: Binary mask showing the detected ball
+        camera_index: Index of the camera to use
     """
-    # Convert to HSV for better color segmentation
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-    # Create color mask
-    mask = cv2.inRange(hsv, lower_color, upper_color)
-
-    # Apply morphological operations to remove noise
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-    # Find contours
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # If no contours found, return None
-    if not contours:
-        return None, mask
-
-    # Find the largest contour (presumably the ball)
-    largest_contour = max(contours, key=cv2.contourArea)
-
-    # Check if contour is big enough
-    if cv2.contourArea(largest_contour) < np.pi * min_radius ** 2:
-        return None, mask
-
-    # Find the minimum enclosing circle
-    ((x, y), radius) = cv2.minEnclosingCircle(largest_contour)
-
-    # Additional check for circularity
-    area = cv2.contourArea(largest_contour)
-    perimeter = cv2.arcLength(largest_contour, True)
-    circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
-
-    # If the contour is approximately circular (circularity > 0.6) and big enough
-    if circularity > 0.6 and radius > min_radius:
-        return (int(x), int(y), int(radius)), mask
-
-    return None, mask
-
-
-def main():
     # Initialize camera
-    print("Starting camera...")
-    camera = cv2.VideoCapture(0)  # Use default camera (usually the built-in webcam)
+    camera = cv2.VideoCapture(camera_index)
 
     if not camera.isOpened():
-        print("Error: Could not open camera")
+        print("Error: Could not open camera.")
         return
 
-    # Allow camera to warm up
-    time.sleep(1)
-
-    # Default color range for an orange ball
-    # You can adjust these values for your specific ball
-    lower_color = np.array([5, 100, 100])  # Orange (low end)
-    upper_color = np.array([15, 255, 255])  # Orange (high end)
-
-    # Try to load saved color settings if they exist
+    # Load saved ball color or use default tennis ball color (yellow-green)
     try:
-        data = np.load('ball_color.npz')
-        lower_color = data['lower_color']
-        upper_color = data['upper_color']
-        print("Loaded saved color calibration")
+        lower_color, upper_color = load_ball_color()
     except:
-        print("Using default orange ball color settings")
+        # Default tennis ball color range (yellow-green)
+        lower_color = np.array([25, 50, 50])  # Lower bound for tennis ball (adjust as needed)
+        upper_color = np.array([65, 255, 255])  # Upper bound for tennis ball (adjust as needed)
 
-    print("\nControls:")
-    print("  q - Quit")
-    print("  + - Increase minimum radius")
-    print("  - - Decrease minimum radius")
-    print("  c - Enter color calibration mode")
-
-    # Initial settings
+    # Parameters for Hough circle detection
     min_radius = 10
-    show_mask = False
-    calibration_mode = False
+    max_radius = 100
+
+    # Create window
+    window_name = 'Ball Detection Test'
+    cv2.namedWindow(window_name)
+
+    # Create trackbars for real-time Hough circle parameter adjustment
+    cv2.createTrackbar('Min Radius', window_name, min_radius, 100, lambda x: None)
+    cv2.createTrackbar('Max Radius', window_name, max_radius, 300, lambda x: None)
+    cv2.createTrackbar('Param1', window_name, 100, 300, lambda x: None)
+    cv2.createTrackbar('Param2', window_name, 30, 100, lambda x: None)
+
+    # Create trackbars for color detection
+    cv2.createTrackbar('H min', window_name, lower_color[0], 179, lambda x: None)
+    cv2.createTrackbar('S min', window_name, lower_color[1], 255, lambda x: None)
+    cv2.createTrackbar('V min', window_name, lower_color[2], 255, lambda x: None)
+    cv2.createTrackbar('H max', window_name, upper_color[0], 179, lambda x: None)
+    cv2.createTrackbar('S max', window_name, upper_color[1], 255, lambda x: None)
+    cv2.createTrackbar('V max', window_name, upper_color[2], 255, lambda x: None)
+
+    # Lists to store position history for trajectory visualization
+    color_positions = []
+    hough_positions = []
+    max_history = 30  # Number of past positions to keep for trajectory
+
+    print("Ball detection test started.")
+    print("Use trackbars to adjust detection parameters in real-time.")
+    print("Press 's' to save color calibration.")
+    print("Press 'c' to clear trajectory history.")
+    print("Press 'q' to quit.")
 
     while True:
         # Read frame
         ret, frame = camera.read()
         if not ret:
-            print("Failed to capture frame")
+            print("Failed to capture frame. Check camera connection.")
             break
 
-        # Detect ball
-        ball_pos, mask = detect_ball_color(frame, lower_color, upper_color, min_radius)
+        # Get current trackbar values for Hough circle detection
+        min_radius = cv2.getTrackbarPos('Min Radius', window_name)
+        max_radius = cv2.getTrackbarPos('Max Radius', window_name)
+        param1 = cv2.getTrackbarPos('Param1', window_name)
+        param2 = cv2.getTrackbarPos('Param2', window_name)
 
-        # Create output frame
-        output = frame.copy()
+        # Get current trackbar values for color detection
+        h_min = cv2.getTrackbarPos('H min', window_name)
+        s_min = cv2.getTrackbarPos('S min', window_name)
+        v_min = cv2.getTrackbarPos('V min', window_name)
+        h_max = cv2.getTrackbarPos('H max', window_name)
+        s_max = cv2.getTrackbarPos('S max', window_name)
+        v_max = cv2.getTrackbarPos('V max', window_name)
 
-        # Draw detection result
-        if ball_pos:
-            x, y, radius = ball_pos
-            # Draw circle around the ball
-            cv2.circle(output, (x, y), radius, (0, 255, 0), 2)
-            # Draw center point
-            cv2.circle(output, (x, y), 5, (0, 0, 255), -1)
-            # Display position and radius
-            cv2.putText(output, f"Position: ({x}, {y})", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(output, f"Radius: {radius}px", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        else:
-            cv2.putText(output, "No ball detected", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        # Update color ranges
+        lower_color = np.array([h_min, s_min, v_min])
+        upper_color = np.array([h_max, s_max, v_max])
 
-        # Display settings
-        cv2.putText(output, f"Min radius: {min_radius}px", (10, frame.shape[0] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        # Create a copy for visualization
+        display_frame = frame.copy()
 
-        # Display the output
-        cv2.imshow('Ball Detection', output)
+        # Detect ball using color method
+        ball_color, mask = detect_ball_color(frame, lower_color, upper_color)
 
-        # Display mask if enabled
-        if show_mask:
-            cv2.imshow('Mask', mask)
+        # Customize Hough transform parameters
+        blurred = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (9, 9), 2)
+        circles = cv2.HoughCircles(
+            blurred,
+            cv2.HOUGH_GRADIENT,
+            dp=1,
+            minDist=50,
+            param1=param1,
+            param2=param2,
+            minRadius=min_radius,
+            maxRadius=max_radius
+        )
+
+        # Process Hough circles result
+        ball_hough = None
+        if circles is not None:
+            circles = np.round(circles[0, :]).astype(int)
+            if len(circles) > 0:
+                circles = sorted(circles, key=lambda x: x[2], reverse=True)
+                x, y, radius = circles[0]
+                ball_hough = (x, y, radius)
+
+        # Update position history
+        if ball_color:
+            color_positions.append(ball_color[:2])  # Store x, y only
+            if len(color_positions) > max_history:
+                color_positions.pop(0)
+
+        if ball_hough:
+            hough_positions.append(ball_hough[:2])  # Store x, y only
+            if len(hough_positions) > max_history:
+                hough_positions.pop(0)
+
+        # Draw ball detection results on display frame
+        if ball_color:
+            x, y, radius = ball_color
+            cv2.circle(display_frame, (x, y), radius, (0, 255, 0), 2)
+            cv2.circle(display_frame, (x, y), 5, (0, 0, 255), -1)
+            cv2.putText(display_frame, f"Color: ({x}, {y}), r={radius}",
+                        (x + radius + 10, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        if ball_hough:
+            x, y, radius = ball_hough
+            cv2.circle(display_frame, (x, y), radius, (255, 0, 0), 2)
+            cv2.circle(display_frame, (x, y), 5, (0, 255, 255), -1)
+            cv2.putText(display_frame, f"Hough: ({x}, {y}), r={radius}",
+                        (x + radius + 10, y + 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+        # Draw trajectories
+        if len(color_positions) > 1:
+            for i in range(1, len(color_positions)):
+                # Gradient color based on position in trajectory (newer = brighter)
+                alpha = i / len(color_positions)
+                color = (0, int(255 * alpha), 0)
+                cv2.line(display_frame,
+                         (color_positions[i - 1][0], color_positions[i - 1][1]),
+                         (color_positions[i][0], color_positions[i][1]),
+                         color, 2)
+
+        if len(hough_positions) > 1:
+            for i in range(1, len(hough_positions)):
+                # Gradient color based on position in trajectory (newer = brighter)
+                alpha = i / len(hough_positions)
+                color = (int(255 * alpha), 0, 0)
+                cv2.line(display_frame,
+                         (hough_positions[i - 1][0], hough_positions[i - 1][1]),
+                         (hough_positions[i][0], hough_positions[i][1]),
+                         color, 2)
+
+        # Add legend
+        cv2.putText(display_frame, "Green Circle: Color Detection", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(display_frame, "Blue Circle: Hough Detection", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+        # Add current HSV color range
+        hsv_text = f"HSV Range: [{h_min},{s_min},{v_min}] to [{h_max},{s_max},{v_max}]"
+        cv2.putText(display_frame, hsv_text, (10, display_frame.shape[0] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Display frames
+        cv2.imshow('Original', frame)
+        cv2.imshow('Mask', mask)
+        cv2.imshow(window_name, display_frame)
 
         # Handle key presses
         key = cv2.waitKey(1) & 0xFF
-
         if key == ord('q'):
             # Quit
             break
-        elif key == ord('+') or key == ord('='):
-            # Increase minimum radius
-            min_radius += 1
-            print(f"Min radius: {min_radius}px")
-        elif key == ord('-') or key == ord('_'):
-            # Decrease minimum radius
-            min_radius = max(1, min_radius - 1)
-            print(f"Min radius: {min_radius}px")
-        elif key == ord('m'):
-            # Toggle mask display
-            show_mask = not show_mask
-            if show_mask:
-                cv2.imshow('Mask', mask)
-            else:
-                cv2.destroyWindow('Mask')
+        elif key == ord('s'):
+            # Save color calibration
+            from object_detection import save_ball_color
+            save_ball_color(lower_color, upper_color)
+            print("Saved current color calibration.")
         elif key == ord('c'):
-            # Enter color calibration mode
-            calibration_mode = True
-            cv2.destroyAllWindows()
-
-            # Create color calibration window with trackbars
-            cv2.namedWindow('Color Calibration')
-            cv2.createTrackbar('H min', 'Color Calibration', lower_color[0], 179, lambda x: None)
-            cv2.createTrackbar('S min', 'Color Calibration', lower_color[1], 255, lambda x: None)
-            cv2.createTrackbar('V min', 'Color Calibration', lower_color[2], 255, lambda x: None)
-            cv2.createTrackbar('H max', 'Color Calibration', upper_color[0], 179, lambda x: None)
-            cv2.createTrackbar('S max', 'Color Calibration', upper_color[1], 255, lambda x: None)
-            cv2.createTrackbar('V max', 'Color Calibration', upper_color[2], 255, lambda x: None)
-
-            print("\nColor Calibration Mode")
-            print("  Adjust sliders until only the ball is visible in the mask")
-            print("  q - Save and exit calibration")
-            print("  r - Reset to defaults")
-
-            while calibration_mode:
-                # Read frame
-                ret, frame = camera.read()
-                if not ret:
-                    break
-
-                # Get current trackbar values
-                h_min = cv2.getTrackbarPos('H min', 'Color Calibration')
-                s_min = cv2.getTrackbarPos('S min', 'Color Calibration')
-                v_min = cv2.getTrackbarPos('V min', 'Color Calibration')
-                h_max = cv2.getTrackbarPos('H max', 'Color Calibration')
-                s_max = cv2.getTrackbarPos('S max', 'Color Calibration')
-                v_max = cv2.getTrackbarPos('V max', 'Color Calibration')
-
-                # Update color ranges
-                lower_color = np.array([h_min, s_min, v_min])
-                upper_color = np.array([h_max, s_max, v_max])
-
-                # Detect ball with current settings
-                ball_pos, mask = detect_ball_color(frame, lower_color, upper_color, min_radius)
-
-                # Create output
-                result = frame.copy()
-                if ball_pos:
-                    x, y, radius = ball_pos
-                    cv2.circle(result, (x, y), radius, (0, 255, 0), 2)
-                    cv2.circle(result, (x, y), 5, (0, 0, 255), -1)
-
-                # Show current HSV values
-                hsv_text = f"H:{h_min}-{h_max}, S:{s_min}-{s_max}, V:{v_min}-{v_max}"
-                cv2.putText(result, hsv_text, (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-                # Display images
-                cv2.imshow('Color Calibration', result)
-                cv2.imshow('Mask', mask)
-
-                # Handle key presses
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    # Save and exit calibration
-                    calibration_mode = False
-                    np.savez('ball_color.npz', lower_color=lower_color, upper_color=upper_color)
-                    print("Color calibration saved")
-                    print(f"Lower color: {lower_color}")
-                    print(f"Upper color: {upper_color}")
-                    break
-                elif key == ord('r'):
-                    # Reset to defaults
-                    cv2.setTrackbarPos('H min', 'Color Calibration', 5)
-                    cv2.setTrackbarPos('S min', 'Color Calibration', 100)
-                    cv2.setTrackbarPos('V min', 'Color Calibration', 100)
-                    cv2.setTrackbarPos('H max', 'Color Calibration', 15)
-                    cv2.setTrackbarPos('S max', 'Color Calibration', 255)
-                    cv2.setTrackbarPos('V max', 'Color Calibration', 255)
-
-            # Clean up calibration windows
-            cv2.destroyAllWindows()
+            # Clear trajectory history
+            color_positions = []
+            hough_positions = []
+            print("Cleared trajectory history.")
 
     # Clean up
     camera.release()
     cv2.destroyAllWindows()
-    print("Testing finished")
 
 
 if __name__ == "__main__":
-    main()
+    test_ball_detection()

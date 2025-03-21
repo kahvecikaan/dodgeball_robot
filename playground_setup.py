@@ -75,7 +75,7 @@ def detect_aruco_markers(frame, aruco_dict, parameters):
     return corners, ids, frame_markers
 
 
-def setup_playground(frame, aruco_dict, parameters, marker_ids=None, playground_dims=(200, 300)):
+def setup_playground(frame, aruco_dict, parameters, marker_ids=None, playground_dims=(50, 50)):
     """
     Set up the playground coordinate system using ArUco markers.
 

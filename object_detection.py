@@ -192,9 +192,9 @@ def ball_color_calibration(camera_index=0):
     # Initialize camera
     camera = cv2.VideoCapture(camera_index)
 
-    # Default color range for an orange ball
-    lower_color = np.array([5, 100, 100])
-    upper_color = np.array([15, 255, 255])
+    # Default color range for a tennis ball
+    lower_color = np.array([25, 50, 50])
+    upper_color = np.array([65, 255, 255])
 
     # Create trackbars window
     cv2.namedWindow('Ball Color Calibration')
@@ -288,8 +288,8 @@ def load_ball_color(filename='ball_color.npz'):
         return lower_color, upper_color
     except Exception as e:
         print(f"Error loading ball color calibration: {e}")
-        print("Using default orange ball color range")
-        return np.array([5, 100, 100]), np.array([15, 255, 255])
+        print("Using default tennis ball color range")
+        return np.array([25, 50, 50]), np.array([65, 255, 255])
 
 
 if __name__ == "__main__":

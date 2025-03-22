@@ -4,12 +4,13 @@ Integrates ball detection, playground coordinate system visualization,
 throw data recording, and previous throw visualization.
 """
 
+import csv
+import time
+
 import cv2
 import numpy as np
-import time
-import csv
-import os
-from object_detection import detect_ball_color, load_ball_color
+
+from object_detection import detect_ball_color
 from playground_setup import create_aruco_dict, detect_aruco_markers, transform_point, inverse_transform_point
 
 
@@ -36,13 +37,12 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     window_name = 'Combined Ball and Playground Test'
     cv2.namedWindow(window_name)
 
-    # Load default tennis ball color (yellow-green) as requested
-    lower_color = np.array([25, 50, 50])  # Default HSV values for tennis ball
+    # Load default tennis ball color
+    lower_color = np.array([25, 50, 50])
     upper_color = np.array([65, 255, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
-    marker_centers = None
     playground_dims = None
     is_setup_complete = False
 
@@ -58,10 +58,10 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     throw_counter = 0
     start_time = 0
 
-    # Variables for throw visualization
+    # Variable for throw visualization
     show_previous_throws = False
 
-    # Define colors for visualizing different throws (7 distinct colors)
+    # Define colors for visualizing different throws
     throw_colors = [
         (255, 0, 0),  # Blue
         (0, 255, 0),  # Green
@@ -69,7 +69,10 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
         (255, 255, 0),  # Cyan
         (255, 0, 255),  # Magenta
         (0, 255, 255),  # Yellow
-        (255, 165, 0)  # Orange
+        (255, 165, 0),  # Orange
+        (255, 0, 100), # Purple
+        (181, 130, 28), # Mediterranean Blue
+        (28, 181, 163), # Pea
     ]
 
     print("\nCombined Ball Detection and Playground Coordinate Test with Throw Recording")
@@ -105,7 +108,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
             # Check if all required corner markers are detected
             if ids is not None:
                 # Convert ids to a flat array for easier comparison
-                ids_flat = ids.flatten()
+                ids_flat = ids.flatten() # to convert from [[0],[1],[2],[3]] to [0,1,2,3]
                 required_markers = [0, 1, 2, 3]
 
                 if all(marker_id in ids_flat for marker_id in required_markers):
@@ -122,6 +125,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                     marker_centers = np.array(marker_centers, dtype=np.float32)
 
                     # Ask for real-world dimensions if not already provided
+                    # If dimensions are known, skip the prompt
                     if playground_dims is None:
                         cv2.imshow(window_name, display_frame)
                         cv2.waitKey(1)
@@ -153,6 +157,21 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
 
                         except ValueError:
                             print("Invalid input. Please enter numeric values.")
+                    else:
+                        # Use existing dimensions with new marker positions
+                        width, height = playground_dims
+                        playground_corners_real = np.array([
+                            [0, 0],  # Top-left (ID 0)
+                            [width, 0],  # Top-right (ID 1)
+                            [width, height],  # Bottom-right (ID 2)
+                            [0, height]  # Bottom-left (ID 3)
+                        ], dtype=np.float32)
+
+                        # Calculate new homography matrix with existing dimensions
+                        homography_matrix, _ = cv2.findHomography(marker_centers, playground_corners_real)
+                        is_setup_complete = True
+                        print("\nPlayground recalibrated with existing dimensions.")
+                        print(f"Playground dimensions: {width}cm x {height}cm")
                 else:
                     missing = [m for m in required_markers if m not in ids_flat]
                     message = f"Missing markers: {missing}"
@@ -303,7 +322,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
         cv2.imshow(window_name, display_frame)
 
         # Handle key presses
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1)
         if key == ord('q'):
             # Quit without saving
             if throw_counter > 0 and all_throws:
@@ -328,8 +347,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
         elif key == ord('x'):
             # Recalibrate coordinate system
             homography_matrix = None
-            marker_centers = None
-            playground_dims = None
+            # playground_dims remains intact
             is_setup_complete = False
             ball_pixel_positions = []
             ball_playground_positions = []

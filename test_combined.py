@@ -1,7 +1,6 @@
 """
-Combined test script for ball-dodging robot vision system.
-Integrates ball detection, playground coordinate system visualization,
-throw data recording, and previous throw visualization.
+Enhanced combined test script for ball-dodging robot vision system.
+Includes trajectory prediction, robot detection, and collision warning.
 """
 
 import csv
@@ -10,14 +9,15 @@ import time
 import cv2
 import numpy as np
 
-from object_detection import detect_ball_color
+from object_detection import detect_ball_color, detect_robot
 from playground_setup import create_aruco_dict, detect_aruco_markers, transform_point, inverse_transform_point
+from trajectory_prediction import KalmanTracker
 
 
 def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     """
     Combined test for ball detection and playground coordinate system.
-    Records throw data to CSV and allows visualization of previous throws.
+    Records throw data to CSV, predicts trajectories, and detects potential collisions.
 
     Args:
         camera_index: Index of camera to use
@@ -37,9 +37,9 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     window_name = 'Combined Ball and Playground Test'
     cv2.namedWindow(window_name)
 
-    # Load default tennis ball color
-    lower_color = np.array([25, 50, 50])
-    upper_color = np.array([65, 255, 255])
+    # Load default tennis ball color (narrowed range for better specificity)
+    lower_color = np.array([28, 80, 80])
+    upper_color = np.array([60, 255, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
@@ -61,6 +61,25 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     # Variable for throw visualization
     show_previous_throws = False
 
+    # Trajectory prediction variables
+    kalman_tracker = None
+    prediction_enabled = True
+
+    # Variables for temporal consistency tracking
+    detection_counter = 0
+    min_detection_confidence = 2  # Reduced from 3 to 2 to be more responsive
+
+    # Variables for persistent prediction display
+    last_valid_trajectory = []
+    last_valid_landing_point = None
+    prediction_active = False
+
+    # Robot tracking variables
+    robot_position = None
+    robot_width = 15  # Width of robot in cm (adjust as needed)
+    collision_detected = False
+    collision_point = None
+
     # Define colors for visualizing different throws
     throw_colors = [
         (255, 0, 0),  # Blue
@@ -70,22 +89,24 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
         (255, 0, 255),  # Magenta
         (0, 255, 255),  # Yellow
         (255, 165, 0),  # Orange
-        (255, 0, 100), # Purple
-        (181, 130, 28), # Mediterranean Blue
-        (28, 181, 163), # Pea
+        (255, 0, 100),  # Purple
+        (181, 130, 28),  # Mediterranean Blue
+        (28, 181, 163),  # Pea
     ]
 
-    print("\nCombined Ball Detection and Playground Coordinate Test with Throw Recording")
-    print("=========================================================================")
+    print("\nEnhanced Ball Detection and Robot Collision System")
+    print("=================================================")
     print("SETUP INSTRUCTIONS:")
     print("1. Place the four ArUco markers (IDs 0, 1, 2, 3) in a rectangular configuration")
     print("2. The markers should form a rectangle or square on a flat surface")
-    print("3. Place the ball in the camera view")
+    print("3. Place marker ID 42 on the robot at the bottom of the playground")
+    print("4. Place the ball in the camera view")
     print("\nINTERACTION:")
     print("- Press 'r' to start/stop recording a throw")
     print("- Press 'v' to toggle visualization of previous throws")
+    print("- Press 'p' to toggle trajectory prediction")
     print("- Press 's' to save all recorded throws to CSV")
-    print("- Press 'c' to clear trajectory history")
+    print("- Press 'c' to clear trajectory history and predictions")
     print("- Press 'x' to recalibrate the coordinate system")
     print("- Press 'q' to quit (without saving)")
 
@@ -108,7 +129,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
             # Check if all required corner markers are detected
             if ids is not None:
                 # Convert ids to a flat array for easier comparison
-                ids_flat = ids.flatten() # to convert from [[0],[1],[2],[3]] to [0,1,2,3]
+                ids_flat = ids.flatten()
                 required_markers = [0, 1, 2, 3]
 
                 if all(marker_id in ids_flat for marker_id in required_markers):
@@ -189,6 +210,41 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
             # Get ArUco marker positions to update display
             corners, ids, _ = detect_aruco_markers(frame, aruco_dict, parameters)
 
+            # Detect robot (marker 42)
+            robot_result, robot_vis_frame = detect_robot(
+                frame, aruco_dict, parameters,
+                robot_marker_id=42,
+                homography_matrix=homography_matrix
+            )
+
+            # Update robot position if detected
+            if robot_result:
+                robot_position = robot_result[0]  # Get x-coordinate of robot
+
+                # Draw robot visualization
+                if not show_previous_throws:  # Only show if not displaying previous throws
+                    # Calculate robot position in playground coordinates
+                    width, height = playground_dims
+                    robot_y = height  # Robot is at maximum y
+
+                    # Convert to pixel coordinates for display
+                    robot_center_pixel = inverse_transform_point((robot_position, robot_y), homography_matrix)
+                    robot_left_pixel = inverse_transform_point((robot_position - robot_width / 2, robot_y),
+                                                               homography_matrix)
+                    robot_right_pixel = inverse_transform_point((robot_position + robot_width / 2, robot_y),
+                                                                homography_matrix)
+
+                    # Draw robot representation
+                    cv2.line(display_frame,
+                             (int(robot_left_pixel[0]), int(robot_left_pixel[1])),
+                             (int(robot_right_pixel[0]), int(robot_right_pixel[1])),
+                             (0, 0, 255), 4)
+
+                    # Add robot label
+                    cv2.putText(display_frame, f"Robot: {robot_position:.1f} cm",
+                                (int(robot_center_pixel[0]) - 50, int(robot_center_pixel[1]) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
             # Draw markers if detected
             if ids is not None:
                 for i, id in enumerate(ids.flatten()):
@@ -228,11 +284,20 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                                     pixel_points[0],
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-            # Detect ball using color method
-            ball_pos, mask = detect_ball_color(frame, lower_color, upper_color)
+            # Detect ball using basic color method - ignore mask return value as we don't use it
+            ball_pos, _ = detect_ball_color(frame, lower_color, upper_color, min_radius=10)
 
-            # Update trajectory if ball is detected
+            # Update temporal consistency tracking
             if ball_pos:
+                detection_counter += 1
+            else:
+                detection_counter = max(0, detection_counter - 1)
+
+            # Only process ball if detection is reliable
+            is_detection_reliable = detection_counter >= min_detection_confidence
+
+            # Update trajectory if ball is detected and reliable
+            if ball_pos and is_detection_reliable:
                 x, y, radius = ball_pos
 
                 # Add to pixel position history
@@ -251,6 +316,30 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                     elapsed_time = time.time() - start_time
                     # Store: time, pixel x, pixel y, real x, real y
                     current_throw.append((elapsed_time, x, y, playground_coords[0], playground_coords[1]))
+
+                # Update trajectory prediction if enabled
+                if prediction_enabled and len(ball_playground_positions) >= 2:
+                    # Initialize or update Kalman tracker
+                    if kalman_tracker is None:
+                        kalman_tracker = KalmanTracker(initial_pos=playground_coords)
+                    else:
+                        kalman_tracker.update(playground_coords)
+
+                    # Only predict trajectory when we have enough data
+                    # and the ball is in the first half of the playground
+                    width, height = playground_dims
+                    if playground_coords[1] < height / 2:
+                        # Predict future trajectory
+                        predicted_trajectory = kalman_tracker.predict_trajectory(num_steps=30)
+
+                        # Find where trajectory intersects with maximum y
+                        landing_point = find_landing_point(predicted_trajectory, height)
+
+                        # Update persistent prediction if we have a valid landing point
+                        if landing_point:
+                            last_valid_trajectory = predicted_trajectory
+                            last_valid_landing_point = landing_point
+                            prediction_active = True
 
                 # Draw current ball position
                 cv2.circle(display_frame, (x, y), radius, (0, 255, 0), 2)  # Ball outline
@@ -277,6 +366,60 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                              ball_pixel_positions[i],
                              color, 2)
 
+            # Display the persistent prediction if active
+            if prediction_active and prediction_enabled:
+                # Draw the latest valid predicted trajectory
+                if last_valid_trajectory:
+                    draw_predicted_trajectory(display_frame, last_valid_trajectory, homography_matrix, (0, 255, 255))
+
+                # Draw the latest valid landing point
+                if last_valid_landing_point:
+                    draw_landing_point(display_frame, last_valid_landing_point, homography_matrix)
+
+                # Check for collision if robot is detected
+                if robot_position is not None and last_valid_landing_point is not None:
+                    # Use the check_collision function instead of inline code
+                    collision_detected = check_collision(
+                        last_valid_landing_point,
+                        robot_position,
+                        robot_width,
+                        threshold=5
+                    )
+
+                    if collision_detected:
+                        collision_point = last_valid_landing_point
+                    else:
+                        collision_point = None
+
+                # Display collision warning if detected
+                if collision_detected:
+                    # Draw warning text
+                    warning_text = "COLLISION WARNING!"
+                    cv2.putText(display_frame, warning_text,
+                                (display_frame.shape[1] // 2 - 150, 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+
+                    # Calculate impact point in pixel coordinates
+                    if collision_point:
+                        impact_pixel = inverse_transform_point(collision_point, homography_matrix)
+                        x, y = int(impact_pixel[0]), int(impact_pixel[1])
+
+                        # Draw flashing impact marker (pulsing effect)
+                        flash_intensity = int(127 * np.sin(time.time() * 8) + 128)
+                        cv2.circle(display_frame, (x, y), 15, (0, 0, flash_intensity), -1)
+                        cv2.circle(display_frame, (x, y), 20, (0, 0, 255), 3)
+
+                        # Draw warning arrows pointing to impact point
+                        arrow_length = 30
+                        cv2.arrowedLine(display_frame,
+                                        (x - arrow_length, y - arrow_length),
+                                        (x - 5, y - 5),
+                                        (0, 0, 255), 2, tipLength=0.3)
+                        cv2.arrowedLine(display_frame,
+                                        (x + arrow_length, y - arrow_length),
+                                        (x + 5, y - 5),
+                                        (0, 0, 255), 2, tipLength=0.3)
+
             # Add playground coordinate speed estimate if we have enough history
             if len(ball_playground_positions) >= 2:
                 # Calculate instantaneous velocity
@@ -298,6 +441,18 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                             (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
                 status_y += 30
 
+            # Show prediction status
+            if prediction_enabled:
+                cv2.putText(display_frame, "TRAJECTORY PREDICTION ON",
+                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                status_y += 30
+
+                # Show landing point if available
+                if prediction_active and last_valid_landing_point:
+                    cv2.putText(display_frame, f"Predicted landing: X = {last_valid_landing_point[0]:.1f} cm",
+                                (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    status_y += 30
+
             # Show recording status
             if is_recording:
                 # Recording indicator with red pulsing effect
@@ -315,7 +470,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                 status_y += 30
 
             # Add help text (keypress options)
-            cv2.putText(display_frame, "r: record  v: view throws  s: save  q: quit",
+            cv2.putText(display_frame, "r: record  v: view throws  p: toggle prediction  s: save  q: quit",
                         (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
         # Display the result
@@ -351,13 +506,25 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
             is_setup_complete = False
             ball_pixel_positions = []
             ball_playground_positions = []
+            kalman_tracker = None
+            last_valid_trajectory = []
+            last_valid_landing_point = None
+            prediction_active = False
+            collision_detected = False
+            collision_point = None
             # Keep the recorded throws
             print("\nRecalibrating coordinate system...")
         elif key == ord('c'):
-            # Clear trajectory
+            # Clear trajectory and prediction
             ball_pixel_positions = []
             ball_playground_positions = []
-            print("Cleared trajectory history.")
+            kalman_tracker = None
+            last_valid_trajectory = []
+            last_valid_landing_point = None
+            prediction_active = False
+            collision_detected = False
+            collision_point = None
+            print("Cleared trajectory history and predictions.")
         elif key == ord('v'):
             # Toggle visualization of previous throws
             show_previous_throws = not show_previous_throws
@@ -365,6 +532,13 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                 print(f"Showing {throw_counter} previous throws")
             else:
                 print("Hiding previous throws")
+        elif key == ord('p'):
+            # Toggle trajectory prediction
+            prediction_enabled = not prediction_enabled
+            if not prediction_enabled:
+                prediction_active = False
+                collision_detected = False
+            print(f"Trajectory prediction: {'ON' if prediction_enabled else 'OFF'}")
         elif key == ord('r'):
             # Toggle recording state
             if is_recording:
@@ -385,6 +559,143 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     # Clean up
     camera.release()
     cv2.destroyAllWindows()
+
+def find_landing_point(trajectory, max_y):
+    """
+    Find where the ball's trajectory intersects with the maximum y-coordinate.
+
+    Args:
+        trajectory: List of predicted positions [(x1, y1), (x2, y2), ...]
+        max_y: Maximum y-coordinate of the playground
+
+    Returns:
+        landing_point: (x, y) coordinates of the landing point, or None if not found
+    """
+    if not trajectory or len(trajectory) < 2:
+        return None
+
+    # Check each segment of the trajectory
+    for i in range(1, len(trajectory)):
+        y1 = trajectory[i - 1][1]
+        y2 = trajectory[i][1]
+
+        # If this segment crosses max_y
+        if (y1 <= max_y <= y2) or (y2 <= max_y <= y1):
+            x1 = trajectory[i - 1][0]
+            x2 = trajectory[i][0]
+
+            # If the segment is vertical (or nearly so)
+            if abs(x2 - x1) < 0.001:
+                x_intersect = x1
+            else:
+                # Linear interpolation to find x at max_y
+                t = (max_y - y1) / (y2 - y1)
+                x_intersect = x1 + t * (x2 - x1)
+
+            return x_intersect, max_y
+
+    # If we've examined the entire trajectory and found no intersection
+    # Check if the last point is beyond max_y
+    if trajectory[-1][1] > max_y:
+        # Extrapolate from the last two points
+        x1, y1 = trajectory[-2]
+        x2, y2 = trajectory[-1]
+
+        # If the segment is vertical (or nearly so)
+        if abs(x2 - x1) < 0.001:
+            x_intersect = x1
+        else:
+            # Linear extrapolation to find x at max_y
+            t = (max_y - y1) / (y2 - y1)
+            x_intersect = x1 + t * (x2 - x1)
+
+        return x_intersect, max_y
+
+    return None
+
+
+def check_collision(landing_point, robot_position, robot_width, threshold=5):
+    """
+    Check if predicted landing point will collide with the robot.
+
+    Args:
+        landing_point: (x, y) coordinates of predicted landing point
+        robot_position: x-coordinate of robot's center
+        robot_width: Width of the robot in cm
+        threshold: Additional threshold in cm to account for uncertainty
+
+    Returns:
+        collision: Boolean indicating whether a collision is predicted
+    """
+    if landing_point is None or robot_position is None:
+        return False
+
+    # Calculate distance between landing point x and robot x
+    distance = abs(landing_point[0] - robot_position)
+
+    # Check if landing point is within robot's width plus threshold
+    collision_threshold = (robot_width / 2) + threshold
+
+    return distance < collision_threshold
+
+
+def draw_predicted_trajectory(frame, trajectory, homography_matrix, color):
+    """
+    Draw the predicted trajectory on the frame.
+
+    Args:
+        frame: Frame to draw on
+        trajectory: List of predicted positions in real-world coordinates
+        homography_matrix: Homography matrix for coordinate transformation
+        color: Color to draw the trajectory (B, G, R)
+    """
+    if not trajectory or len(trajectory) < 2:
+        return
+
+    # Convert trajectory points to pixel coordinates
+    pixel_points = []
+    for point in trajectory:
+        pixel_point = inverse_transform_point(point, homography_matrix)
+        pixel_points.append((int(pixel_point[0]), int(pixel_point[1])))
+
+    # Draw lines connecting the points
+    for i in range(1, len(pixel_points)):
+        cv2.line(frame, pixel_points[i - 1], pixel_points[i], color, 2, cv2.LINE_AA)
+
+    # Draw small circles at each predicted position
+    for point in pixel_points:
+        cv2.circle(frame, point, 2, color, -1)
+
+
+def draw_landing_point(frame, landing_point, homography_matrix):
+    """
+    Draw the predicted landing point on the frame.
+
+    Args:
+        frame: Frame to draw on
+        landing_point: (x, y) coordinates of landing point in real-world coordinates
+        homography_matrix: Homography matrix for coordinate transformation
+    """
+    if landing_point is None:
+        return
+
+    # Convert landing point to pixel coordinates
+    pixel_point = inverse_transform_point(landing_point, homography_matrix)
+    x, y = int(pixel_point[0]), int(pixel_point[1])
+
+    # Draw attention-grabbing marker
+    cv2.circle(frame, (x, y), 8, (0, 255, 255), -1)  # Filled circle
+    cv2.circle(frame, (x, y), 12, (0, 255, 255), 2)  # Outer ring
+
+    # Draw crosshairs
+    cv2.line(frame, (x - 15, y), (x - 5, y), (0, 255, 255), 2)  # Left
+    cv2.line(frame, (x + 5, y), (x + 15, y), (0, 255, 255), 2)  # Right
+    cv2.line(frame, (x, y - 15), (x, y - 5), (0, 255, 255), 2)  # Top
+    cv2.line(frame, (x, y + 5), (x, y + 15), (0, 255, 255), 2)  # Bottom
+
+    # Add text label with x-coordinate
+    label = f"X: {landing_point[0]:.1f} cm"
+    cv2.putText(frame, label, (x + 15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
 
 def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing=10):

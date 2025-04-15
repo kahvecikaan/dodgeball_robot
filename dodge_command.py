@@ -130,7 +130,7 @@ class DodgeCommandModule:
 
         if self.is_dodging:
             if self.target_position is not None:
-                if abs(position_cm - self.target_position) < 2.0 # Within 2 cm tolerance
+                if abs(position_cm - self.target_position) < 2.0: # Within 2 cm tolerance
                     print(f"Dodge complete - Robot reached target position: {position_cm:.1f} cm")
                     self.is_dodging = False
                     return

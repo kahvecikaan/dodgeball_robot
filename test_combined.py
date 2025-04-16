@@ -2,7 +2,7 @@
 Enhanced combined test script for ball-dodging robot vision system.
 Includes trajectory prediction, robot detection, collision warning and dodge commands.
 """
-
+import argparse
 import csv
 import time
 
@@ -82,14 +82,25 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     collision_detected = False
     collision_point = None
 
+    dodge_info = None
+    dodge_info_time = 0
+    dodge_info_duration = 5.0
+
     # Initialize dodge command module
     dodge_module = None
     if not disable_dodge:
-        dodge_module = DodgeCommandModule(port=arduino_port, robot_width=robot_width)
-        if dodge_module.connected:
-            print("Dodge command module connected")
-        else:
-            print("Failed to connect dodge command module. Only visualization will be available.")
+        try:
+            dodge_module = DodgeCommandModule(port=arduino_port, robot_width=robot_width)
+            if dodge_module.connected:
+                print("Dodge command module connected")
+            else:
+                print("Failed to connect to physical Arduino.")
+                print("Running in simulation mode - dodge commands will processed but not sent to hardware")
+                # Initialize with simulated condition
+                dodge_module.connected = True # Force connected state for testing
+        except Exception as e:
+            print(f"Error initializing dodge module: {e}")
+            print("Running without dodge capability")
 
     # Define colors for visualizing different throws
     throw_colors = [
@@ -274,16 +285,26 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
                 # Convert to pixel coordinates for display
                 target_pixel = inverse_transform_point((target_x, target_y), homography_matrix)
+                t_x, t_y = int(target_pixel[0]), int(target_pixel[1])
 
-                # Draw target position indicator
-                cv2.circle(display_frame,
-                           (int(target_pixel[0]), int(target_pixel[1])),
-                           10, (0, 255, 0), 2)
+                # Convert current robot position to pixel coordinates
+                robot_pixel = inverse_transform_point((robot_position, target_y), homography_matrix)
+                r_x, r_y = int(robot_pixel[0]), int(robot_pixel[1])
 
-                # Draw label
-                cv2.putText(display_frame, "DODGE TARGET",
-                            (int(target_pixel[0]) + 15, int(target_pixel[1])),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                # Draw arrow from current position to target
+                cv2.arrowedLine(display_frame,
+                                (r_x, r_y),
+                                (t_x, t_y),
+                                (0, 255, 0), tipLength=0.2)
+
+                # Draw target position
+                cv2.circle(display_frame, (t_x, t_y), 8, (0, 255, 0), -1)
+                cv2.circle(display_frame, (t_x, t_y), 12, (0,255,0), 2)
+
+                # Add text indicating target
+                cv2.putText(display_frame, f"TARGET: {target_x:.1f} cm",
+                            (t_x + 15, t_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             # Draw markers if detected
             if ids is not None:
@@ -443,7 +464,25 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                     if collision_point:
                         # Send dodge command if module is available
                         if dodge_module and dodge_module.connected and not dodge_module.is_dodging:
-                            dodge_module.process_collision(collision_point)
+                            # Store the direction and robot position before dodge
+                            pre_dodge_position = robot_position
+                            dodge_direction = "left" if collision_point[0] > robot_position else "right"
+
+                            # Process collision
+                            dodge_result = dodge_module.process_collision(collision_point)
+
+                            if dodge_result and dodge_module.target_position is not None:
+                                # Calculate dodge distance
+                                dodge_distance = abs(dodge_module.target_position - pre_dodge_position)
+
+                                # Store dodge info for display
+                                dodge_info = {
+                                    "direction": dodge_direction,
+                                    "distance": dodge_distance,
+                                    "target": dodge_module.target_position
+                                }
+
+                                dodge_info_time = time.time()
 
                         impact_pixel = inverse_transform_point(collision_point, homography_matrix)
                         x, y = int(impact_pixel[0]), int(impact_pixel[1])
@@ -501,6 +540,44 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                     cv2.putText(display_frame, f"Predicted landing: X = {last_valid_landing_point[0]:.1f} cm",
                                 (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                     status_y += 30
+
+            # Show dodge command information if available
+            if dodge_info and time.time() - dodge_info_time < dodge_info_duration:
+                # Create background for better readability
+                info_y = status_y
+                cv2.rectangle(display_frame,
+                              (10, info_y),
+                              (400, info_y + 120),
+                              (0, 0, 0),
+                              -1)
+                # Draw bordered box
+                cv2.rectangle(display_frame,
+                              (10, info_y),
+                              (400, info_y + 120),
+                              (0, 165, 255),
+                              2)
+
+                # Title
+                cv2.putText(display_frame, "DODGE COMMAND ISSUED:",
+                            (20, info_y + 25),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+
+                # Direction
+                cv2.putText(display_frame, f"Direction: {dodge_info['direction'].upper()}",
+                            (20, info_y + 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+                # Distance
+                cv2.putText(display_frame, f"Distance: {dodge_info['distance']:.1f} cm",
+                            (20, info_y + 75),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+                # Target position
+                cv2.putText(display_frame, f"Target position: {dodge_info['target']:.1f} cm",
+                            (20, info_y + 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+                status_y += 130
 
             # Show dodge status if connected
             if dodge_module and dodge_module.connected:
@@ -869,4 +946,7 @@ def save_throws_to_csv(all_throws, filename):
 
 if __name__ == "__main__":
     # Run the combined test
-    test_combined_system()
+    parser = argparse.ArgumentParser(description='Ball-dodging robot vision system')
+    parser.add_argument('--disable_dodge', action='store_true', help='Disable dodge command module')
+    args = parser.parse_args()
+    test_combined_system(disable_dodge=args.disable_dodge)

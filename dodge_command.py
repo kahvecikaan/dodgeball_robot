@@ -32,6 +32,31 @@ def list_serial_ports():
     return result
 
 
+def select_serial_port():
+    available_ports = list_serial_ports()
+
+    if not available_ports:
+        print('No serial ports found. Check connections')
+        return None
+
+    print('Available serial ports: ')
+    for i, port in enumerate(available_ports):
+        print(f"{i + 1}. {port}")
+
+    try:
+        selection = int(input('Select port number (or 0 to cancel): '))
+        if selection == 0:
+            return None
+        if 1 <= selection <= len(available_ports):
+            return available_ports[selection - 1]
+        else:
+            print('Invalid selection')
+            return None
+    except ValueError:
+        print('Invalid input.')
+        return None
+
+
 class DodgeCommandModule:
     """
     Module for sending dodge commands to the robot based on the trajectory predictions.
@@ -58,35 +83,11 @@ class DodgeCommandModule:
 
         # Auto select port if not specified
         if port is None:
-            self.port = self.select_serial_port()
+            self.port = select_serial_port()
 
         # Establish serial connection
         if self.port:
             self.connect()
-
-    def select_serial_port(self):
-        available_ports = list_serial_ports()
-
-        if not available_ports:
-            print('No serial ports found. Check connections')
-            return None
-
-        print('Available serial ports: ')
-        for i, port in enumerate(available_ports):
-            print(f"{i + 1}. {port}")
-
-        try:
-            selection = int(input('Select port number (or 0 to cancel): '))
-            if selection == 0:
-                return None
-            if 1 <= selection <= len(available_ports):
-                return available_ports[selection - 1]
-            else:
-                print('Invalid selection')
-                return None
-        except ValueError:
-            print('Invalid input.')
-            return None
 
     def connect(self):
         """Establish serial connection with Arduino"""

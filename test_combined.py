@@ -421,16 +421,21 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                                         (0, 0, 255), 2, tipLength=0.3)
 
             # Add playground coordinate speed estimate if we have enough history
-            if len(ball_playground_positions) >= 2:
-                # Calculate instantaneous velocity
-                dt = 1 / 30.0  # Assuming 30 fps
-                dx = ball_playground_positions[-1][0] - ball_playground_positions[-2][0]
-                dy = ball_playground_positions[-1][1] - ball_playground_positions[-2][1]
-                speed = np.sqrt(dx * dx + dy * dy) / dt
+            if len(ball_playground_positions) >= 3:
+                # Calculate average velocity over last few frames
+                velocities = []
+                for i in range(1, min(5, len(ball_playground_positions))):
+                    dx = ball_playground_positions[-i][0] - ball_playground_positions[-i-1][0]
+                    dy = ball_playground_positions[-i][1] - ball_playground_positions[-i-1][1]
+                    dt = 1 / 30.0 # Assuming 30 FPS
+                    velocities.append(np.sqrt(dx*dx + dy*dy) / dt)
 
-                # Display speed
-                cv2.putText(display_frame, f"Speed: {speed:.1f} cm/s", (10, display_frame.shape[0] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                # Average velocity
+                if velocities:
+                    speed = sum(velocities) / len(velocities)
+                    # Display speed
+                    cv2.putText(display_frame, f"Speed: {speed:.1f} cm/s", (10, display_frame.shape[0] - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
             # Show recording and visualization status
             status_y = 30  # Starting y-position for status text

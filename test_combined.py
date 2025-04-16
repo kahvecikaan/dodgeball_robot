@@ -1,6 +1,6 @@
 """
 Enhanced combined test script for ball-dodging robot vision system.
-Includes trajectory prediction, robot detection, and collision warning.
+Includes trajectory prediction, robot detection, collision warning and dodge commands.
 """
 
 import csv
@@ -12,9 +12,9 @@ import numpy as np
 from object_detection import detect_ball_color, detect_robot
 from playground_setup import create_aruco_dict, detect_aruco_markers, transform_point, inverse_transform_point
 from trajectory_prediction import KalmanTracker
+from dodge_command import DodgeCommandModule
 
-
-def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
+def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_port=None, disable_dodge=False):
     """
     Combined test for ball detection and playground coordinate system.
     Records throw data to CSV, predicts trajectories, and detects potential collisions.
@@ -22,6 +22,8 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     Args:
         camera_index: Index of camera to use
         csv_filename: Filename to save throw data
+        arduino_port: Serial port for Arduino (auto-detect if not specified)
+        disable_dodge: If True, don't initialize the dodge command module
     """
     # Initialize camera
     camera = cv2.VideoCapture(camera_index)
@@ -80,6 +82,15 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     collision_detected = False
     collision_point = None
 
+    # Initialize dodge command module
+    dodge_module = None
+    if not disable_dodge:
+        dodge_module = DodgeCommandModule(port=arduino_port, robot_width=robot_width)
+        if dodge_module.connected:
+            print("Dodge command module connected")
+        else:
+            print("Failed to connect dodge command module. Only visualization will be available.")
+
     # Define colors for visualizing different throws
     throw_colors = [
         (255, 0, 0),  # Blue
@@ -109,6 +120,11 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
     print("- Press 'c' to clear trajectory history and predictions")
     print("- Press 'x' to recalibrate the coordinate system")
     print("- Press 'q' to quit (without saving)")
+    if dodge_module and dodge_module.connected:
+        print("DODGE CONTROLS:")
+        print("- Press 'a' to test dodge left")
+        print("- Press 'd' to test dodge right")
+        print("- Press 'e' to emergency stop")
 
     while True:
         # Capture frame
@@ -221,6 +237,10 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
             if robot_result:
                 robot_position = robot_result[0]  # Get x-coordinate of robot
 
+                # Update dodge module with robot position
+                if dodge_module and dodge_module.connected:
+                    dodge_module.update_robot_position(robot_position)
+
                 # Draw robot visualization
                 if not show_previous_throws:  # Only show if not displaying previous throws
                     # Calculate robot position in playground coordinates
@@ -244,6 +264,26 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                     cv2.putText(display_frame, f"Robot: {robot_position:.1f} cm",
                                 (int(robot_center_pixel[0]) - 50, int(robot_center_pixel[1]) - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+            # Draw dodge target position if active
+            if dodge_module and dodge_module.connected and dodge_module.is_dodging and dodge_module.target_position is not None:
+                # Calculate target position in playground coordinates
+                width, height = playground_dims
+                target_x = dodge_module.target_position
+                target_y = height # Robot's y position is at max_y
+
+                # Convert to pixel coordinates for display
+                target_pixel = inverse_transform_point((target_x, target_y), homography_matrix)
+
+                # Draw target position indicator
+                cv2.circle(display_frame,
+                           (int(target_pixel[0]), int(target_pixel[1])),
+                           10, (0, 255, 0), 2)
+
+                # Draw label
+                cv2.putText(display_frame, "DODGE TARGET",
+                            (int(target_pixel[0]) + 15, int(target_pixel[1])),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
             # Draw markers if detected
             if ids is not None:
@@ -401,6 +441,10 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
 
                     # Calculate impact point in pixel coordinates
                     if collision_point:
+                        # Send dodge command if module is available
+                        if dodge_module and dodge_module.connected and not dodge_module.is_dodging:
+                            dodge_module.process_collision(collision_point)
+
                         impact_pixel = inverse_transform_point(collision_point, homography_matrix)
                         x, y = int(impact_pixel[0]), int(impact_pixel[1])
 
@@ -456,6 +500,15 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                 if prediction_active and last_valid_landing_point:
                     cv2.putText(display_frame, f"Predicted landing: X = {last_valid_landing_point[0]:.1f} cm",
                                 (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    status_y += 30
+
+            # Show dodge status if connected
+            if dodge_module and dodge_module.connected:
+                if dodge_module.is_dodging:
+                    # Dodge status with target position
+                    dodge_text = f"DODGING to X = {dodge_module.target_position:.1f} cm"
+                    cv2.putText(display_frame, dodge_text,
+                                (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
                     status_y += 30
 
             # Show recording status
@@ -560,8 +613,23 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv"):
                 current_throw = []  # Clear any old data
                 start_time = time.time()  # Reset time reference
                 print(f"Started recording throw #{throw_counter + 1}")
+        elif key == ord('e'):
+            if dodge_module and dodge_module.connected:
+                dodge_module.emergency_stop()
+                print("Emergency stop sent")
+        elif key == ord('d'): # Test dodge right
+            if dodge_module and dodge_module.connected and robot_position is not None:
+                dodge_module.test_dodge_right(20.0)
+                print("Test dodge right initiated")
+        elif key == ord('a'): # Test dodge left
+            if dodge_module and dodge_module.connected and robot_position is not None:
+                dodge_module.test_dodge_left(20.0)
+                print("Test dodge left initiated")
 
     # Clean up
+    if dodge_module and dodge_module.connected:
+        dodge_module.close()
+
     camera.release()
     cv2.destroyAllWindows()
 

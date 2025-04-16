@@ -113,6 +113,13 @@ class DodgeCommandModule:
             return False
 
         try:
+            if self.ser is None:
+                # Simulation mode - just print the command
+                print(f"SIMULATION: Would send command: {command_dict}")
+                self.last_command_time = time.time()
+                return True
+
+            # Normal mode with real connection
             # Convert to JSON and add newline as terminator
             command_json = json.dumps(command_dict) + "\n"
             self.ser.write(command_json.encode())

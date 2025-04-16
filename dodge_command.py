@@ -202,6 +202,40 @@ class DodgeCommandModule:
                   f"urgency: {urgency:.2f}, target: {self.target_position:.1f}cm")
             return True
 
+    def test_dodge_left(self, distance=20.0):
+        """Send a test dodge command to the left."""
+        success = self.send_command({
+            "command": "dodge",
+            "parameters": {
+                "direction": "left",
+                "distance": float(distance)
+            }
+        })
+
+        if success:
+            self.is_dodging = True
+            self.dodge_start_time = time.time()
+            self.target_position = self.robot_position - distance
+
+        return success
+
+    def test_dodge_right(self, distance=20.0):
+        """Send a test dodge command to the right."""
+        success = self.send_command({
+            "command": "dodge",
+            "parameters": {
+                "direction": "right",
+                "distance": float(distance)
+            }
+        })
+
+        if success:
+            self.is_dodging = True
+            self.dodge_start_time = time.time()
+            self.target_position = self.robot_position + distance
+
+        return success
+
     def emergency_stop(self):
         """Send emergency stop command."""
         self.is_dodging = False

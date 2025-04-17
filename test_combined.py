@@ -83,8 +83,6 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     collision_point = None
 
     dodge_info = None
-    dodge_info_time = 0
-    dodge_info_duration = 5.0
 
     # Initialize dodge command module
     dodge_module = None
@@ -387,9 +385,9 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                         kalman_tracker.update(playground_coords)
 
                     # Only predict trajectory when we have enough data
-                    # and the ball is in the first half of the playground
+                    # and the ball is in the 3/4 of the playground
                     width, height = playground_dims
-                    if playground_coords[1] < height / 2:
+                    if playground_coords[1] < height * 3 / 4:
                         # Predict future trajectory
                         predicted_trajectory = kalman_tracker.predict_trajectory(num_steps=30)
 
@@ -439,7 +437,6 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
                 # Check for collision if robot is detected
                 if robot_position is not None and last_valid_landing_point is not None:
-                    # Use the check_collision function instead of inline code
                     collision_detected = check_collision(
                         last_valid_landing_point,
                         robot_position,
@@ -481,8 +478,6 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                                     "distance": dodge_distance,
                                     "target": dodge_module.target_position
                                 }
-
-                                dodge_info_time = time.time()
 
                         impact_pixel = inverse_transform_point(collision_point, homography_matrix)
                         x, y = int(impact_pixel[0]), int(impact_pixel[1])
@@ -542,7 +537,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                     status_y += 30
 
             # Show dodge command information if available
-            if dodge_info and time.time() - dodge_info_time < dodge_info_duration:
+            if dodge_info:
                 # Create background for better readability
                 info_y = status_y
                 cv2.rectangle(display_frame,
@@ -833,7 +828,6 @@ def draw_landing_point(frame, landing_point, homography_matrix):
     pixel_point = inverse_transform_point(landing_point, homography_matrix)
     x, y = int(pixel_point[0]), int(pixel_point[1])
 
-    # Draw attention-grabbing marker
     cv2.circle(frame, (x, y), 8, (0, 255, 255), -1)  # Filled circle
     cv2.circle(frame, (x, y), 12, (0, 255, 255), 2)  # Outer ring
 

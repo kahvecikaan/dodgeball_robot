@@ -96,11 +96,20 @@ class DodgeCommandModule:
             return False
 
         try:
-            self.ser = serial.Serial(self.port, self.baud_rate, timeout=1)
+            self.ser = serial.Serial(
+                port=self.port,
+                baudrate=self.baud_rate,
+                timeout=1, # Read timeout
+                write_timeout=1 # Write timeout
+            )
             time.sleep(2)
             self.connected = True
             print(f"Connected to Arduino on {self.port}")
             return True
+        except serial.SerialTimeoutException:
+            print(f"Timeout connecting to Arduino on {self.port}")
+            self.connected = False
+            return False
         except Exception as e:
             print(f"Failed to connect to Arduino: {e}")
             self.connected = False
@@ -136,10 +145,26 @@ class DodgeCommandModule:
         previous_position = self.robot_position
         self.robot_position = position_cm
 
-        if self.is_dodging:
-            if self.target_position is not None:
-                if abs(position_cm - self.target_position) < 2.0: # Within 2 cm tolerance
-                    print(f"Dodge complete - Robot reached target position: {position_cm:.1f} cm")
+        if self.is_dodging and self.target_position is not None and previous_position is not None:
+            # Case 1: Robot is within tolerance of target position
+            if abs(position_cm - self.target_position) < 2.0:  # Within 2 cm tolerance
+                print(f"Dodge complete - Robot reached target position: {position_cm:.1f} cm")
+                self.is_dodging = False
+                return
+
+            # Case 2: Robot has passed the target position
+            # Check if the robot has crossed over the target position between frames
+            if (previous_position <= self.target_position < self.robot_position) or \
+                    (previous_position >= self.target_position > self.robot_position):
+                print(f"Dodge complete - Robot passed target position: {self.target_position:.1f} cm")
+                self.is_dodging = False
+                return
+
+            # Case 3: Check for timeout
+            if self.dodge_start_time is not None:
+                elapsed_time = time.time() - self.dodge_start_time
+                if elapsed_time > self.dodge_timeout:
+                    print(f"Dodge timed out after {elapsed_time:.1f} seconds")
                     self.is_dodging = False
                     return
 
@@ -174,20 +199,15 @@ class DodgeCommandModule:
             # No collision predicted
             return False
 
-        dodge_distance = collision_threshold - distance + 5
+        dodge_distance = collision_threshold - distance + 15
 
         dodge_direction = "right" if landing_x < self.robot_position else "left"
-
-        # Calculate urgency based on time to impact
-        urgency = 0.8 # default high urgency
-        urgency = min(1.0, max(0.6, 1.0 / time_to_impact + 0.5))
 
         command = {
             "command": "dodge",
             "parameters": {
                 "direction": dodge_direction,
                 "distance": float(dodge_distance),
-                "urgency": float(urgency)
             }
         }
 
@@ -207,7 +227,7 @@ class DodgeCommandModule:
             self.target_position = self.robot_position + (dir_multiplier * dodge_distance)
 
             print(f"Dodge initiated: {dodge_direction} by {dodge_distance:.1f}cm, "
-                  f"urgency: {urgency:.2f}, target: {self.target_position:.1f}cm")
+                  f"Target: {self.target_position:.1f}cm")
             return True
 
     def test_dodge_left(self, distance=20.0):

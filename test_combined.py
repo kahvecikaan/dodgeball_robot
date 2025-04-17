@@ -14,6 +14,91 @@ from playground_setup import create_aruco_dict, detect_aruco_markers, transform_
 from trajectory_prediction import KalmanTracker
 from dodge_command import DodgeCommandModule
 
+COLORS = {
+    'bg_dark': (10, 10, 10),
+    'grid': (60, 60, 60),
+    'grid_label': (120, 120, 200),
+    'position': (52, 152, 219),  # Blue for positions/measurements
+    'prediction': (241, 196, 15),  # Yellow for predictions
+    'warning': (231, 76, 60),  # Red for warnings
+    'command': (46, 204, 113),  # Green for commands/actions
+    'status': (149, 165, 166),  # Gray for status text
+    'robot': (192, 57, 43),  # Dark red for robot
+    'record': (192, 57, 43),  # Dark red for recording
+    'panel_bg': (0, 0, 0, 0.7),  # Semi-transparent black for panels
+    'panel_border': (200, 200, 200),  # Light gray for panel borders
+    'info_text': (255, 255, 255),  # White for text in panels
+    'target': (39, 174, 96)  # Dark green for target
+}
+
+
+def draw_panel(frame, title, content_lines, x, y, width, height, title_color, border_color=(200, 200, 200)):
+    """
+    Draw a semi-transparent panel with title and content.
+
+    Args:
+        frame: Frame to draw on
+        title: Panel title
+        content_lines: List of lines to display in panel
+        x: x coordinate of the top-left corner
+        y: y coordinate of the top-left corner
+        width: Width of the panel
+        height: Height of the panel
+        title_color: Color for the title
+        border_color: Color for panel border
+    """
+    # Create semi-transparent overlay
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + width, y + height), COLORS['bg_dark'], -1)
+
+    # Add overlay to frame with transparency
+    alpha = 0.7
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+    # Draw border
+    cv2.rectangle(frame, (x, y), (x + width, y + height), border_color, 1)
+
+    # Draw title with background
+    title_height = 30
+    cv2.rectangle(frame, (x, y), (x + width, y + title_height), title_color, -1)
+    cv2.putText(frame, title, (x + 10, y + 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    # Draw content
+    for i, line in enumerate(content_lines):
+        y_pos = y + title_height + 25 + i * 25
+        cv2.putText(frame, line, (x + 15, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS['info_text'], 1)
+
+
+def draw_controls_bar(frame, dodge_enabled=False):
+    """Draw a control reference bar at the bottom of the frame."""
+    h, w = frame.shape[:2]
+    bar_height = 40
+    y = h - bar_height
+
+    # Draw background
+    cv2.rectangle(frame, (0, y), (w, h), (30, 30, 30), -1)
+    cv2.rectangle(frame, (0, y), (w, h), (100, 100, 100), 1)
+
+    # Prepare control text
+    controls = [
+        "[R] Record",
+        "[V] View Throws",
+        "[P] Toggle Prediction",
+        "[S] Save",
+        "[Q] Quit"
+    ]
+
+    if dodge_enabled:
+        controls.extend(["[A/D] Test Dodge", "[E] Emergency Stop"])
+
+    # Draw controls as a single line
+    control_text = "  |  ".join(controls)
+    cv2.putText(frame, control_text, (10, y + 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+
+
 def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_port=None, disable_dodge=False):
     """
     Combined test for ball detection and playground coordinate system.
@@ -36,7 +121,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     aruco_dict, parameters = create_aruco_dict()
 
     # Create window
-    window_name = 'Combined Ball and Playground Test'
+    window_name = 'Dodgeball Robot Vision System'
     cv2.namedWindow(window_name)
 
     # Load default tennis ball color (narrowed range for better specificity)
@@ -95,7 +180,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                 print("Failed to connect to physical Arduino.")
                 print("Running in simulation mode - dodge commands will processed but not sent to hardware")
                 # Initialize with simulated condition
-                dodge_module.connected = True # Force connected state for testing
+                dodge_module.connected = True  # Force connected state for testing
         except Exception as e:
             print(f"Error initializing dodge module: {e}")
             print("Running without dodge capability")
@@ -222,15 +307,15 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                     missing = [m for m in required_markers if m not in ids_flat]
                     message = f"Missing markers: {missing}"
                     cv2.putText(display_frame, message, (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLORS['warning'], 2)
             else:
                 cv2.putText(display_frame, "No markers detected", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLORS['warning'], 2)
 
         # Step 2: If setup is complete, detect ball and show coordinate grid
         if is_setup_complete:
             # Draw coordinate grid
-            draw_coordinate_grid(display_frame, homography_matrix, playground_dims, grid_spacing=10)
+            draw_coordinate_grid(display_frame, homography_matrix, playground_dims, grid_spacing=20)
 
             # Get ArUco marker positions to update display
             corners, ids, _ = detect_aruco_markers(frame, aruco_dict, parameters)
@@ -263,23 +348,38 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                     robot_right_pixel = inverse_transform_point((robot_position + robot_width / 2, robot_y),
                                                                 homography_matrix)
 
-                    # Draw robot representation
+                    # Draw robot representation with improved visibility
                     cv2.line(display_frame,
                              (int(robot_left_pixel[0]), int(robot_left_pixel[1])),
                              (int(robot_right_pixel[0]), int(robot_right_pixel[1])),
-                             (0, 0, 255), 4)
+                             COLORS['robot'], 5)  # Thicker line
 
-                    # Add robot label
-                    cv2.putText(display_frame, f"Robot: {robot_position:.1f} cm",
-                                (int(robot_center_pixel[0]) - 50, int(robot_center_pixel[1]) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    # Add larger circle at center
+                    cv2.circle(display_frame,
+                               (int(robot_center_pixel[0]), int(robot_center_pixel[1])),
+                               8, COLORS['robot'], -1)
+
+                    # Add robot label with background for better visibility
+                    label = f"Robot: {robot_position:.1f} cm"
+                    text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                    label_x = int(robot_center_pixel[0]) - text_size[0] // 2
+                    label_y = int(robot_center_pixel[1]) - 15
+
+                    # Background for text
+                    cv2.rectangle(display_frame,
+                                  (label_x - 5, label_y - 20),
+                                  (label_x + text_size[0] + 5, label_y + 5),
+                                  COLORS['bg_dark'], -1)
+                    cv2.putText(display_frame, label,
+                                (label_x, label_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS['info_text'], 2)
 
             # Draw dodge target position if active
             if dodge_module and dodge_module.connected and dodge_module.is_dodging and dodge_module.target_position is not None:
                 # Calculate target position in playground coordinates
                 width, height = playground_dims
                 target_x = dodge_module.target_position
-                target_y = height # Robot's y position is at max_y
+                target_y = height  # Robot's y position is at max_y
 
                 # Convert to pixel coordinates for display
                 target_pixel = inverse_transform_point((target_x, target_y), homography_matrix)
@@ -289,20 +389,30 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                 robot_pixel = inverse_transform_point((robot_position, target_y), homography_matrix)
                 r_x, r_y = int(robot_pixel[0]), int(robot_pixel[1])
 
-                # Draw arrow from current position to target
+                # Draw arrow from current position to target (thicker and brighter)
                 cv2.arrowedLine(display_frame,
                                 (r_x, r_y),
                                 (t_x, t_y),
-                                (0, 255, 0), tipLength=0.2)
+                                COLORS['target'], 3, tipLength=0.2)  # Thicker line
 
-                # Draw target position
-                cv2.circle(display_frame, (t_x, t_y), 8, (0, 255, 0), -1)
-                cv2.circle(display_frame, (t_x, t_y), 12, (0,255,0), 2)
+                # Draw target position with pulsing effect
+                pulse = int(127 * np.sin(time.time() * 4) + 128)
+                cv2.circle(display_frame, (t_x, t_y), 10, COLORS['target'], -1)  # Inner circle
+                cv2.circle(display_frame, (t_x, t_y), 18, (0, pulse, 0), 2)  # Outer ring with pulse
 
-                # Add text indicating target
-                cv2.putText(display_frame, f"TARGET: {target_x:.1f} cm",
-                            (t_x + 15, t_y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # Add text indicating target with better visibility
+                target_label = f"TARGET: {target_x:.1f} cm"
+
+                # Background for text
+                text_size = cv2.getTextSize(target_label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                cv2.rectangle(display_frame,
+                              (t_x + 20 - 5, t_y - 5),
+                              (t_x + 20 + text_size[0] + 5, t_y + text_size[1] + 5),
+                              COLORS['bg_dark'], -1)
+
+                cv2.putText(display_frame, target_label,
+                            (t_x + 20, t_y + text_size[1]),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS['target'], 2)
 
             # Draw markers if detected
             if ids is not None:
@@ -327,20 +437,31 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                         # Extract pixel coordinates for drawing
                         pixel_points = [(point[1], point[2]) for point in throw]
 
-                        # Draw trajectory line
-                        for i in range(1, len(pixel_points)):
-                            cv2.line(display_frame,
-                                     pixel_points[i - 1],
-                                     pixel_points[i],
-                                     color, 2)
+                        # Draw trajectory line with semi-transparent fill
+                        points_array = np.array(pixel_points, np.int32)
+                        points_array = points_array.reshape((-1, 1, 2))
+
+                        # Draw semi-transparent fill under the trajectory
+                        overlay = display_frame.copy()
+                        cv2.polylines(overlay, [points_array], False, color, 3, cv2.LINE_AA)
+                        cv2.addWeighted(overlay, 0.7, display_frame, 0.3, 0, display_frame)
 
                         # Draw circles at beginning and end
-                        cv2.circle(display_frame, pixel_points[0], 7, color, -1)
-                        cv2.circle(display_frame, pixel_points[-1], 7, color, 2)
+                        cv2.circle(display_frame, pixel_points[0], 8, color, -1)
+                        cv2.circle(display_frame, pixel_points[-1], 8, color, 2)
 
-                        # Add throw number
-                        cv2.putText(display_frame, f"#{throw_idx + 1}",
-                                    pixel_points[0],
+                        # Add throw number with background
+                        throw_label = f"#{throw_idx + 1}"
+                        text_size = cv2.getTextSize(throw_label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                        label_bg_x = pixel_points[0][0] - 5
+                        label_bg_y = pixel_points[0][1] - 25
+
+                        cv2.rectangle(display_frame,
+                                      (label_bg_x, label_bg_y),
+                                      (label_bg_x + text_size[0] + 10, label_bg_y + text_size[1] + 10),
+                                      COLORS['bg_dark'], -1)
+                        cv2.putText(display_frame, throw_label,
+                                    (label_bg_x + 5, label_bg_y + text_size[1] + 5),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
             # Detect ball using basic color method - ignore mask return value as we don't use it
@@ -400,36 +521,61 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                             last_valid_landing_point = landing_point
                             prediction_active = True
 
-                # Draw current ball position
-                cv2.circle(display_frame, (x, y), radius, (0, 255, 0), 2)  # Ball outline
-                cv2.circle(display_frame, (x, y), 5, (0, 0, 255), -1)  # Center point
+                # Draw current ball position with improved visibility
+                cv2.circle(display_frame, (x, y), radius, COLORS['position'], 2)  # Ball outline
+                cv2.circle(display_frame, (x, y), 6, COLORS['position'], -1)  # Center point
 
-                # Display coordinates
-                pixel_text = f"Pixel: ({x}, {y})"
-                playground_text = f"Real: ({playground_coords[0]:.1f}, {playground_coords[1]:.1f}) cm"
+                # Display coordinates with background for better readability
+                position_panel_lines = [
+                    f"Pixel: ({x}, {y})",
+                    f"Real: ({playground_coords[0]:.1f}, {playground_coords[1]:.1f}) cm"
+                ]
 
-                cv2.putText(display_frame, pixel_text, (x + radius + 10, y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(display_frame, playground_text, (x + radius + 10, y + 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # Calculate speed if we have enough history
+                if len(ball_playground_positions) >= 3:
+                    # Calculate average velocity over last few frames
+                    velocities = []
+                    for i in range(1, min(5, len(ball_playground_positions))):
+                        dx = ball_playground_positions[-i][0] - ball_playground_positions[-i - 1][0]
+                        dy = ball_playground_positions[-i][1] - ball_playground_positions[-i - 1][1]
+                        dt = 1 / 30.0  # Assuming 30 FPS
+                        velocities.append(np.sqrt(dx * dx + dy * dy) / dt)
+
+                    # Average velocity
+                    if velocities:
+                        speed = sum(velocities) / len(velocities)
+                        position_panel_lines.append(f"Speed: {speed:.1f} cm/s")
+
+                # Draw position panel near the ball
+                panel_width = 220
+                panel_height = 25 * len(position_panel_lines) + 40
+                panel_x = min(x + radius + 15, display_frame.shape[1] - panel_width - 10)
+                panel_y = max(y - panel_height - 10, 10)
+
+                draw_panel(display_frame, "Ball Data", position_panel_lines,
+                           panel_x, panel_y, panel_width, panel_height,
+                           COLORS['position'], COLORS['position'])
 
             # Draw current trajectory in pixel space (only if not showing previous throws)
             if not show_previous_throws and len(ball_pixel_positions) > 1:
+                # Draw trajectory with gradient thickness and color
                 for i in range(1, len(ball_pixel_positions)):
                     # Gradient color based on position in trajectory (newer = brighter)
                     alpha = i / len(ball_pixel_positions)
-                    color = (0, int(255 * alpha), 0)
+                    color = (0, int(100 * alpha) + 155, 0)  # Brighter green for newer segments
+                    thickness = 1 + int(alpha * 3)  # Thicker lines for newer segments
 
                     cv2.line(display_frame,
                              ball_pixel_positions[i - 1],
                              ball_pixel_positions[i],
-                             color, 2)
+                             color, thickness, cv2.LINE_AA)
 
             # Display the persistent prediction if active
             if prediction_active and prediction_enabled:
                 # Draw the latest valid predicted trajectory
                 if last_valid_trajectory:
-                    draw_predicted_trajectory(display_frame, last_valid_trajectory, homography_matrix, (0, 255, 255))
+                    draw_predicted_trajectory(display_frame, last_valid_trajectory, homography_matrix,
+                                              COLORS['prediction'])
 
                 # Draw the latest valid landing point
                 if last_valid_landing_point:
@@ -451,11 +597,38 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
                 # Display collision warning if detected
                 if collision_detected:
-                    # Draw warning text
+                    # Create pulsing effect for warning
+                    pulse = int(127 * np.sin(time.time() * 8) + 128)
+                    warning_color = (0, 0, pulse)
+
+                    # Draw warning panel at top of screen
+                    warning_panel_width = 400
+                    warning_panel_height = 60
+                    warning_panel_x = display_frame.shape[1] // 2 - warning_panel_width // 2
+                    warning_panel_y = 10
+
+                    # Semi-transparent background
+                    overlay = display_frame.copy()
+                    cv2.rectangle(overlay,
+                                  (warning_panel_x, warning_panel_y),
+                                  (warning_panel_x + warning_panel_width, warning_panel_y + warning_panel_height),
+                                  COLORS['warning'], -1)
+                    cv2.addWeighted(overlay, 0.7, display_frame, 0.3, 0, display_frame)
+
+                    # Add border that pulses
+                    cv2.rectangle(display_frame,
+                                  (warning_panel_x, warning_panel_y),
+                                  (warning_panel_x + warning_panel_width, warning_panel_y + warning_panel_height),
+                                  warning_color, 3)
+
+                    # Warning text
                     warning_text = "COLLISION WARNING!"
-                    cv2.putText(display_frame, warning_text,
-                                (display_frame.shape[1] // 2 - 150, 60),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+                    text_size = cv2.getTextSize(warning_text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
+                    text_x = warning_panel_x + (warning_panel_width - text_size[0]) // 2
+                    text_y = warning_panel_y + warning_panel_height // 2 + 10
+
+                    cv2.putText(display_frame, warning_text, (text_x, text_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
 
                     # Calculate impact point in pixel coordinates
                     if collision_point:
@@ -482,126 +655,129 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                         impact_pixel = inverse_transform_point(collision_point, homography_matrix)
                         x, y = int(impact_pixel[0]), int(impact_pixel[1])
 
-                        # Draw flashing impact marker (pulsing effect)
+                        # Draw flashing impact marker with pulsing effect
                         flash_intensity = int(127 * np.sin(time.time() * 8) + 128)
-                        cv2.circle(display_frame, (x, y), 15, (0, 0, flash_intensity), -1)
-                        cv2.circle(display_frame, (x, y), 20, (0, 0, 255), 3)
+                        pulsing_color = (0, 0, flash_intensity)
+                        cv2.circle(display_frame, (x, y), 15, pulsing_color, -1)
+                        cv2.circle(display_frame, (x, y), 25, COLORS['warning'], 3)
 
                         # Draw warning arrows pointing to impact point
                         arrow_length = 30
                         cv2.arrowedLine(display_frame,
                                         (x - arrow_length, y - arrow_length),
                                         (x - 5, y - 5),
-                                        (0, 0, 255), 2, tipLength=0.3)
+                                        COLORS['warning'], 3, tipLength=0.3)
                         cv2.arrowedLine(display_frame,
                                         (x + arrow_length, y - arrow_length),
                                         (x + 5, y - 5),
-                                        (0, 0, 255), 2, tipLength=0.3)
+                                        COLORS['warning'], 3, tipLength=0.3)
 
-            # Add playground coordinate speed estimate if we have enough history
-            if len(ball_playground_positions) >= 3:
-                # Calculate average velocity over last few frames
-                velocities = []
-                for i in range(1, min(5, len(ball_playground_positions))):
-                    dx = ball_playground_positions[-i][0] - ball_playground_positions[-i-1][0]
-                    dy = ball_playground_positions[-i][1] - ball_playground_positions[-i-1][1]
-                    dt = 1 / 30.0 # Assuming 30 FPS
-                    velocities.append(np.sqrt(dx*dx + dy*dy) / dt)
+            # Create status panel at top-left
+            status_panel_lines = [f"Recorded Throws: {throw_counter}"]
 
-                # Average velocity
-                if velocities:
-                    speed = sum(velocities) / len(velocities)
-                    # Display speed
-                    cv2.putText(display_frame, f"Speed: {speed:.1f} cm/s", (10, display_frame.shape[0] - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            # Show total recorded throws
 
-            # Show recording and visualization status
-            status_y = 30  # Starting y-position for status text
+            # Recording status
+            if is_recording:
+                # Add recording indicator with pulse
+                pulse = int(127 * np.sin(time.time() * 8) + 128)
+                status_panel_lines.append(f"RECORDING THROW #{throw_counter + 1}")
+                status_panel_lines.append(f"Points: {len(current_throw)}")
 
-            # Show visualization mode
+                # Draw red border around frame for recording indicator
+                cv2.rectangle(display_frame, (0, 0), (display_frame.shape[1] - 1, display_frame.shape[0] - 1),
+                              (0, 0, pulse), 4)
+
+            # Show previous throws status
             if show_previous_throws:
-                cv2.putText(display_frame, f"SHOWING {throw_counter} PREVIOUS THROWS",
-                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
-                status_y += 30
+                status_panel_lines.append(f"SHOWING {throw_counter} PREVIOUS THROWS")
 
-            # Show prediction status
+            # Draw status panel
+            status_panel_width = 280
+            status_panel_height = 35 + 25 * len(status_panel_lines)
+
+            draw_panel(display_frame, "Status", status_panel_lines,
+                       10, 10, status_panel_width, status_panel_height,
+                       COLORS['status'], COLORS['status'])
+
+            # Initialize panel height variable
+            pred_panel_height = 0
+
+            # Create prediction panel at top-right
             if prediction_enabled:
-                cv2.putText(display_frame, "TRAJECTORY PREDICTION ON",
-                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                status_y += 30
+                prediction_panel_lines = ["Trajectory Prediction ACTIVE"]
 
                 # Show landing point if available
                 if prediction_active and last_valid_landing_point:
-                    cv2.putText(display_frame, f"Predicted landing: X = {last_valid_landing_point[0]:.1f} cm",
-                                (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                    status_y += 30
+                    prediction_panel_lines.append(f"Predicted landing: X = {last_valid_landing_point[0]:.1f} cm")
+
+                    # Add time to impact if available
+                    if kalman_tracker and last_valid_landing_point:
+                        time_to_impact = kalman_tracker.calculate_time_to_impact(last_valid_landing_point)
+                        if time_to_impact is not None:
+                            prediction_panel_lines.append(f"Time to impact: {time_to_impact:.2f} sec")
+
+                # Draw prediction panel
+                pred_panel_width = 300
+                pred_panel_height = 35 + 25 * len(prediction_panel_lines)
+                pred_panel_x = display_frame.shape[1] - pred_panel_width - 10
+
+                draw_panel(display_frame, "Prediction", prediction_panel_lines,
+                           pred_panel_x, 10, pred_panel_width, pred_panel_height,
+                           COLORS['prediction'], COLORS['prediction'])
 
             # Show dodge command information if available
             if dodge_info:
-                # Create background for better readability
-                info_y = status_y
-                cv2.rectangle(display_frame,
-                              (10, info_y),
-                              (400, info_y + 120),
-                              (0, 0, 0),
-                              -1)
-                # Draw bordered box
-                cv2.rectangle(display_frame,
-                              (10, info_y),
-                              (400, info_y + 120),
-                              (0, 165, 255),
-                              2)
+                # Create dodge command panel
+                dodge_panel_lines = [
+                    f"Direction: {dodge_info['direction'].upper()}",
+                    f"Distance: {dodge_info['distance']:.1f} cm",
+                    f"Target position: {dodge_info['target']:.1f} cm"
+                ]
 
-                # Title
-                cv2.putText(display_frame, "DODGE COMMAND ISSUED:",
-                            (20, info_y + 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                # Draw dodge panel
+                dodge_panel_width = 300
+                dodge_panel_height = 35 + 25 * len(dodge_panel_lines)
+                dodge_panel_x = 10
+                dodge_panel_y = 10 + status_panel_height + 10  # Below status panel
 
-                # Direction
-                cv2.putText(display_frame, f"Direction: {dodge_info['direction'].upper()}",
-                            (20, info_y + 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-                # Distance
-                cv2.putText(display_frame, f"Distance: {dodge_info['distance']:.1f} cm",
-                            (20, info_y + 75),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-                # Target position
-                cv2.putText(display_frame, f"Target position: {dodge_info['target']:.1f} cm",
-                            (20, info_y + 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-                status_y += 130
+                draw_panel(display_frame, "DODGE COMMAND ISSUED", dodge_panel_lines,
+                           dodge_panel_x, dodge_panel_y, dodge_panel_width, dodge_panel_height,
+                           COLORS['command'], COLORS['command'])
 
             # Show dodge status if connected
             if dodge_module and dodge_module.connected:
                 if dodge_module.is_dodging:
-                    # Dodge status with target position
-                    dodge_text = f"DODGING to X = {dodge_module.target_position:.1f} cm"
-                    cv2.putText(display_frame, dodge_text,
-                                (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-                    status_y += 30
+                    # Create active dodge panel
+                    dodge_status_lines = [
+                        f"Target: X = {dodge_module.target_position:.1f} cm",
+                    ]
 
-            # Show recording status
-            if is_recording:
-                # Recording indicator with red pulsing effect
-                pulse = int(127 * np.sin(time.time() * 8) + 128)  # Pulsing effect
-                cv2.putText(display_frame, f"RECORDING THROW #{throw_counter + 1} - {len(current_throw)} points",
-                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, pulse), 2)
-                # Draw red border around frame
-                cv2.rectangle(display_frame, (0, 0), (display_frame.shape[1] - 1, display_frame.shape[0] - 1),
-                              (0, 0, 255), 3)
-                status_y += 30
-            else:
-                # Show total recorded throws
-                cv2.putText(display_frame, f"Recorded Throws: {throw_counter}",
-                            (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                status_y += 30
+                    if dodge_module.dodge_start_time:
+                        elapsed = time.time() - dodge_module.dodge_start_time
+                        dodge_status_lines.append(f"Time elapsed: {elapsed:.1f} sec")
 
-            # Add help text (keypress options)
-            cv2.putText(display_frame, "r: record  v: view throws  p: toggle prediction  s: save  q: quit",
-                        (10, status_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                    # Draw dodge status panel
+                    dodge_status_width = 250
+                    dodge_status_height = 35 + 25 * len(dodge_status_lines)
+                    dodge_status_x = display_frame.shape[1] - dodge_status_width - 10
+
+                    # Calculate y position based on whether prediction panel exists
+                    dodge_status_y = 10  # Default position
+                    if pred_panel_height > 0:
+                        dodge_status_y = 10 + pred_panel_height + 10  # Below prediction panel
+
+                    # Use pulsing effect for active dodge
+                    pulse = int(127 * np.sin(time.time() * 4) + 128)
+                    dodge_color = (0, pulse, 0)
+
+                    # Draw panel with pulsing border
+                    draw_panel(display_frame, "ACTIVELY DODGING", dodge_status_lines,
+                               dodge_status_x, dodge_status_y, dodge_status_width, dodge_status_height,
+                               COLORS['command'], dodge_color)
+
+            # Draw controls bar at bottom
+            draw_controls_bar(display_frame, dodge_module and dodge_module.connected)
 
         # Display the result
         cv2.imshow(window_name, display_frame)
@@ -689,11 +865,11 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
             if dodge_module and dodge_module.connected:
                 dodge_module.emergency_stop()
                 print("Emergency stop sent")
-        elif key == ord('d'): # Test dodge right
+        elif key == ord('d'):  # Test dodge right
             if dodge_module and dodge_module.connected and robot_position is not None:
                 dodge_module.test_dodge_right(20.0)
                 print("Test dodge right initiated")
-        elif key == ord('a'): # Test dodge left
+        elif key == ord('a'):   # Test dodge left
             if dodge_module and dodge_module.connected and robot_position is not None:
                 dodge_module.test_dodge_left(20.0)
                 print("Test dodge left initiated")
@@ -704,6 +880,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
     camera.release()
     cv2.destroyAllWindows()
+
 
 def find_landing_point(trajectory, max_y):
     """
@@ -803,13 +980,42 @@ def draw_predicted_trajectory(frame, trajectory, homography_matrix, color):
         pixel_point = inverse_transform_point(point, homography_matrix)
         pixel_points.append((int(pixel_point[0]), int(pixel_point[1])))
 
-    # Draw lines connecting the points
-    for i in range(1, len(pixel_points)):
-        cv2.line(frame, pixel_points[i - 1], pixel_points[i], color, 2, cv2.LINE_AA)
+    # Create a polyline for the trajectory
+    points_array = np.array(pixel_points, np.int32)
+    points_array = points_array.reshape((-1, 1, 2))
 
-    # Draw small circles at each predicted position
-    for point in pixel_points:
-        cv2.circle(frame, point, 2, color, -1)
+    # Draw a semi-transparent area under the trajectory for better visibility
+    overlay = frame.copy()
+
+    # Draw filled curve with semi-transparency
+    if len(points_array) > 4:  # Need enough points for smooth curve
+        # Create a wider polygon for fill
+        hull = cv2.convexHull(points_array)
+        cv2.fillConvexPoly(overlay, hull, (*color, 50))  # Semi-transparent fill
+
+        # Add the overlay with transparency
+        alpha = 0.3
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+    # Draw the main trajectory line with gradient thickness
+    for i in range(1, len(pixel_points)):
+        # Thicker lines for future points (opposite of real trajectory)
+        progress = i / len(pixel_points)
+        thickness = 1 + int((1 - progress) * 2)  # 1-3 pixels, thicker at beginning
+
+        cv2.line(frame, pixel_points[i - 1], pixel_points[i], color, thickness, cv2.LINE_AA)
+
+    # Draw circles at key points - start, end, and a few in between
+    cv2.circle(frame, pixel_points[0], 5, color, -1)  # Start point
+    cv2.circle(frame, pixel_points[-1], 5, color, -1)  # End point
+
+    # Draw direction arrow near the middle of the trajectory
+    mid_idx = len(pixel_points) // 2
+    if 0 < mid_idx < len(pixel_points) - 1:
+        cv2.arrowedLine(frame,
+                        pixel_points[mid_idx - 1],
+                        pixel_points[mid_idx + 1],
+                        color, 2, tipLength=0.3)
 
 
 def draw_landing_point(frame, landing_point, homography_matrix):
@@ -828,23 +1034,37 @@ def draw_landing_point(frame, landing_point, homography_matrix):
     pixel_point = inverse_transform_point(landing_point, homography_matrix)
     x, y = int(pixel_point[0]), int(pixel_point[1])
 
-    cv2.circle(frame, (x, y), 8, (0, 255, 255), -1)  # Filled circle
-    cv2.circle(frame, (x, y), 12, (0, 255, 255), 2)  # Outer ring
+    # Create pulsing effect
+    pulse = int(127 * np.sin(time.time() * 4) + 128)
 
-    # Draw crosshairs
-    cv2.line(frame, (x - 15, y), (x - 5, y), (0, 255, 255), 2)  # Left
-    cv2.line(frame, (x + 5, y), (x + 15, y), (0, 255, 255), 2)  # Right
-    cv2.line(frame, (x, y - 15), (x, y - 5), (0, 255, 255), 2)  # Top
-    cv2.line(frame, (x, y + 5), (x, y + 15), (0, 255, 255), 2)  # Bottom
+    # Draw filled circle with pulsing outer rings
+    cv2.circle(frame, (x, y), 8, COLORS['prediction'], -1)  # Filled circle
+    cv2.circle(frame, (x, y), 15, (0, pulse, pulse), 2)  # Inner ring
+    cv2.circle(frame, (x, y), 25, COLORS['prediction'], 2)  # Outer ring
 
-    # Add text label with x-coordinate
+    # Draw crosshairs with better visibility
+    cv2.line(frame, (x - 20, y), (x - 10, y), COLORS['prediction'], 2)  # Left
+    cv2.line(frame, (x + 10, y), (x + 20, y), COLORS['prediction'], 2)  # Right
+    cv2.line(frame, (x, y - 20), (x, y - 10), COLORS['prediction'], 2)  # Top
+    cv2.line(frame, (x, y + 10), (x, y + 20), COLORS['prediction'], 2)  # Bottom
+
+    # Add text label with better visibility
     label = f"X: {landing_point[0]:.1f} cm"
-    cv2.putText(frame, label, (x + 15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+
+    # Background for text
+    cv2.rectangle(frame,
+                  (x + 15 - 5, y - text_size[1] - 5),
+                  (x + 15 + text_size[0] + 5, y + 5),
+                  COLORS['bg_dark'], -1)
+
+    cv2.putText(frame, label, (x + 15, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLORS['prediction'], 2)
 
 
-def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing=10):
+def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing=20):
     """
-    Draw a coordinate grid on the frame.
+    Draw a more subtle coordinate grid on the frame.
 
     Args:
         frame: Frame to draw on
@@ -854,7 +1074,7 @@ def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing
     """
     width, height = playground_dims
 
-    # Draw grid lines
+    # Draw grid lines with reduced opacity
     for x in range(0, int(width) + 1, grid_spacing):
         # Get start and end points in playground coordinates
         start_point = (x, 0)
@@ -868,14 +1088,24 @@ def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing
         start_pixel = (int(start_pixel[0]), int(start_pixel[1]))
         end_pixel = (int(end_pixel[0]), int(end_pixel[1]))
 
-        # Draw vertical grid line
-        cv2.line(frame, start_pixel, end_pixel, (100, 100, 100), 1)
+        # Draw vertical grid line - thinner and more subtle
+        cv2.line(frame, start_pixel, end_pixel, COLORS['grid'], 1, cv2.LINE_AA)
 
-        # Add coordinate label at the top
+        # Add coordinate label at the top with better visibility
         if x % (grid_spacing * 2) == 0:  # Label every other line to avoid clutter
             label_point = (int(start_pixel[0]), int(start_pixel[1]) - 10)
-            cv2.putText(frame, f"{x}", label_point,
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 255), 1)
+
+            # Draw background for better readability
+            label = f"{x}"
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            cv2.rectangle(frame,
+                          (label_point[0] - text_size[0] // 2 - 3, label_point[1] - text_size[1] - 3),
+                          (label_point[0] + text_size[0] // 2 + 3, label_point[1] + 3),
+                          COLORS['bg_dark'], -1)
+
+            cv2.putText(frame, label,
+                        (label_point[0] - text_size[0] // 2, label_point[1]),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS['grid_label'], 1)
 
     for y in range(0, int(height) + 1, grid_spacing):
         # Get start and end points in playground coordinates
@@ -890,26 +1120,58 @@ def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing
         start_pixel = (int(start_pixel[0]), int(start_pixel[1]))
         end_pixel = (int(end_pixel[0]), int(end_pixel[1]))
 
-        # Draw horizontal grid line
-        cv2.line(frame, start_pixel, end_pixel, (100, 100, 100), 1)
+        # Draw horizontal grid line - thinner and more subtle
+        cv2.line(frame, start_pixel, end_pixel, COLORS['grid'], 1, cv2.LINE_AA)
 
-        # Add coordinate label on the left
+        # Add coordinate label on the left with better visibility
         if y % (grid_spacing * 2) == 0:  # Label every other line to avoid clutter
-            label_point = (int(start_pixel[0]) - 25, int(start_pixel[1]))
-            cv2.putText(frame, f"{y}", label_point,
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 255), 1)
+            label_point = (int(start_pixel[0]) - 20, int(start_pixel[1]))
 
-    # Draw axes labels
-    x_label_pixel = inverse_transform_point((width / 2, -5), homography_matrix)
-    y_label_pixel = inverse_transform_point((-5, height / 2), homography_matrix)
+            # Draw background for better readability
+            label = f"{y}"
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            cv2.rectangle(frame,
+                          (label_point[0] - 3, label_point[1] - text_size[1] // 2 - 3),
+                          (label_point[0] + text_size[0] + 3, label_point[1] + text_size[1] // 2 + 3),
+                          COLORS['bg_dark'], -1)
 
-    cv2.putText(frame, "X (cm)",
-                (int(x_label_pixel[0]), int(x_label_pixel[1])),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, label, label_point,
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS['grid_label'], 1)
 
-    cv2.putText(frame, "Y (cm)",
-                (int(y_label_pixel[0]), int(y_label_pixel[1])),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    # Draw axes labels with better visibility
+    # X axis label
+    x_label = "X (cm)"
+    x_label_pixel = inverse_transform_point((width / 2, -10), homography_matrix)
+    x_label_x = int(x_label_pixel[0])
+    x_label_y = int(x_label_pixel[1])
+
+    # Background for X label
+    x_text_size = cv2.getTextSize(x_label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+    cv2.rectangle(frame,
+                  (x_label_x - x_text_size[0] // 2 - 5, x_label_y - x_text_size[1] - 5),
+                  (x_label_x + x_text_size[0] // 2 + 5, x_label_y + 5),
+                  COLORS['bg_dark'], -1)
+
+    cv2.putText(frame, x_label,
+                (x_label_x - x_text_size[0] // 2, x_label_y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+    # Y axis label
+    y_label = "Y (cm)"
+    y_label_pixel = inverse_transform_point((-10, height / 2), homography_matrix)
+    y_label_x = int(y_label_pixel[0])
+    y_label_y = int(y_label_pixel[1])
+
+    # Background for Y label
+    y_text_size = cv2.getTextSize(y_label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+    cv2.rectangle(frame,
+                  (y_label_x - 5, y_label_y - y_text_size[1] // 2 - 5),
+                  (y_label_x + y_text_size[0] + 5, y_label_y + y_text_size[1] // 2 + 5),
+                  COLORS['bg_dark'], -1)
+
+    cv2.putText(frame, y_label,
+                (y_label_x, y_label_y + y_text_size[1] // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
 
 def save_throws_to_csv(all_throws, filename):

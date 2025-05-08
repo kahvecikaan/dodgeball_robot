@@ -5,6 +5,7 @@ import serial
 import json
 import time
 
+#print("PY DOSYASINA GİRDİK") #debug1
 
 def list_serial_ports():
     """Lists available serial ports on multiple platforms"""
@@ -25,6 +26,7 @@ def list_serial_ports():
     for port in ports:
         try:
             s = serial.Serial(port)
+            #print(f"Port sss: {port}") #debug2
             s.close()
             result.append(port)
         except(OSError, serial.SerialException):
@@ -34,6 +36,7 @@ def list_serial_ports():
 
 def select_serial_port():
     available_ports = list_serial_ports()
+    print(f"Available ports: {available_ports}")  # Debug
 
     if not available_ports:
         print('No serial ports found. Check connections')
@@ -48,6 +51,7 @@ def select_serial_port():
         if selection == 0:
             return None
         if 1 <= selection <= len(available_ports):
+            #print(f"Selected port: {available_ports[selection - 1]}") #debug3
             return available_ports[selection - 1]
         else:
             print('Invalid selection')
@@ -61,10 +65,19 @@ class DodgeCommandModule:
     """
     Module for sending dodge commands to the robot based on the trajectory predictions.
     """
-    def __init__(self, port=None, baud_rate=115200, robot_width=15):
+
+    #print("DodgeCommandModule classına girdik") #debug4
+
+    def __init__(self, port=None, baud_rate=9600, robot_width=15):
         """Initialize the dodge command module"""
+
+        #print("DodgeCommandModule classının init fonksiyonuna girdik") #debug5
+
         # Serial communication setup
         self.port = port
+        #print("AAAAAAA") #debug6
+        #print(f"Port1: {self.port}") #debug6
+        #print(f"sadeceport: {self.port}") #debug6
         self.baud_rate = baud_rate
         self.ser = None
         self.connected = False
@@ -99,12 +112,13 @@ class DodgeCommandModule:
             self.ser = serial.Serial(
                 port=self.port,
                 baudrate=self.baud_rate,
-                timeout=1, # Read timeout
-                write_timeout=1 # Write timeout
+                timeout=1,  # Read timeout
+                write_timeout=1  # Write timeout
             )
-            time.sleep(2)
+            time.sleep(2)  # Allow time for Arduino to reset
             self.connected = True
-            print(f"Connected to Arduino on {self.port}")
+            print(f"Connected to Arduino on {self.port}")  # Debug
+            print(f"Serial port open: {self.ser.is_open}")  # Debug
             return True
         except serial.SerialTimeoutException:
             print(f"Timeout connecting to Arduino on {self.port}")
@@ -117,6 +131,8 @@ class DodgeCommandModule:
 
     def send_command(self, command_dict):
         """Send a command to Arduino"""
+        #print(f"send_command called with: {command_dict}")  # Debug
+
         if not self.connected:
             print("Not connected to Arduino")
             return False
@@ -129,8 +145,8 @@ class DodgeCommandModule:
                 return True
 
             # Normal mode with real connection
-            # Convert to JSON and add newline as terminator
             command_json = json.dumps(command_dict) + "\n"
+            #print(f"Sending JSON to Arduino: {command_json.strip()}")  # Debug
             self.ser.write(command_json.encode())
             self.last_command_time = time.time()
             print(f"Sent: {command_json.strip()}")
@@ -275,3 +291,8 @@ class DodgeCommandModule:
             self.ser.close()
             self.connected = False
             print("Serial connection closed")
+
+    def get_connected_port(self):
+        """Return the connected port."""
+        return self.port
+

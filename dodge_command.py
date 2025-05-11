@@ -141,7 +141,7 @@ class DodgeCommandModule:
             return False
 
     def update_robot_position(self, position_cm):
-        """Update known position of the robot from vision system and check dodge status"""
+        """Update the known position of the robot from the vision system and check dodge status"""
         previous_position = self.robot_position
         self.robot_position = position_cm
 
@@ -229,6 +229,7 @@ class DodgeCommandModule:
             print(f"Dodge initiated: {dodge_direction} by {dodge_distance:.1f}cm, "
                   f"Target: {self.target_position:.1f}cm")
             return True
+        return None
 
     def test_dodge_left(self, distance=20.0):
         """Send a test dodge command to the left."""

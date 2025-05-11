@@ -8,7 +8,7 @@ import numpy as np
 from playground_setup import transform_point
 
 
-def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
+def detect_ball_color(frame, lower_color, upper_color, min_radius=5, max_radius=100):
     """
     Detect a ball in the frame based on color thresholding.
 
@@ -17,6 +17,7 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
         lower_color: Lower bound of color range in HSV
         upper_color: Upper bound of color range in HSV
         min_radius: Minimum radius in pixels to consider a valid ball
+        max_radius: Maximum radius in pixels to consider a valid ball
 
     Returns:
         ball_pos: (x, y, radius) of the detected ball, or None if not detected
@@ -25,7 +26,7 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
     # Convert to HSV for better color segmentation
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Create binary mask where pixels within the specified range becomes white and all others become black
+    # Create binary mask where pixels within the specified range become white and all others become black
     mask = cv2.inRange(hsv, lower_color, upper_color)
 
     # Apply morphological operations to remove noise
@@ -40,78 +41,45 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
     if not contours:
         return None, mask
 
-    # Find the largest contour (presumably the ball)
-    largest_contour = max(contours, key=cv2.contourArea)
+    # Find the best ball candidate based on circularity and size
+    best_ball = None
+    best_score = 0
 
-    # Check if contour is big enough
-    if cv2.contourArea(largest_contour) < np.pi * min_radius ** 2:
-        return None, mask
+    for contour in contours:
+        # Skip tiny contours
+        if cv2.contourArea(contour) < np.pi * min_radius ** 2:
+            continue
 
-    # Find the minimum enclosing circle
-    ((x, y), radius) = cv2.minEnclosingCircle(largest_contour)
+        # Find the minimum enclosing circle
+        ((x, y), radius) = cv2.minEnclosingCircle(contour)
 
-    # Additional check for circularity
-    area = cv2.contourArea(largest_contour)
-    perimeter = cv2.arcLength(largest_contour, True)
-    circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+        # Skip contours that are too large
+        if radius > max_radius:
+            continue
 
-    # If the contour is approximately circular (circularity > 0.6) and big enough
-    if circularity > 0.6 and radius > min_radius:
-        return (int(x), int(y), int(radius)), mask
+        # Calculate circularity
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, True)
+        circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+
+        # Calculate area ratio (area of contour / area of enclosing circle)
+        # A perfect circle would have a ratio close to 1
+        circle_area = np.pi * radius ** 2
+        area_ratio = area / circle_area if circle_area > 0 else 0
+
+        # Combined score based on circularity and area ratio
+        # Higher is better, perfect ball would have score close to 2
+        score = circularity + area_ratio
+
+        if score > best_score and circularity > 0.7:  # Increased circularity threshold
+            best_score = score
+            best_ball = (int(x), int(y), int(radius))
+
+    # Return the best ball candidate if one was found
+    if best_ball and best_score > 1.3:  # Threshold for accepting a ball
+        return best_ball, mask
 
     return None, mask
-
-
-def detect_ball_hough(frame, min_radius=10, max_radius=100):
-    """
-    Detect a ball using Hough Circle detection.
-    Useful if the ball has a clear circular shape but variable color.
-
-    Args:
-        frame: Camera frame
-        min_radius: Minimum radius to detect
-        max_radius: Maximum radius to detect
-
-    Returns:
-        ball_pos: (x, y, radius) of the detected ball, or None if not detected
-        edges: Edge image used for detection
-    """
-    # Convert to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Apply blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (9, 9), 2)
-
-    # Detect edges
-    edges = cv2.Canny(blurred, 50, 150)
-
-    # Apply Hough Circle Transform
-    circles = cv2.HoughCircles(
-        blurred,
-        cv2.HOUGH_GRADIENT,
-        dp=1,
-        minDist=50,
-        param1=100,
-        param2=30,
-        minRadius=min_radius,
-        maxRadius=max_radius
-    )
-
-    # If no circles found, return None
-    if circles is None:
-        return None, edges
-
-    # Convert to integer coordinates
-    circles = np.round(circles[0, :]).astype(int)
-
-    # Take the most prominent circle
-    if len(circles) > 0:
-        # Sort by radius (larger first)
-        circles = sorted(circles, key=lambda x: x[2], reverse=True)
-        x, y, radius = circles[0]
-        return (x, y, radius), edges
-
-    return None, edges
 
 
 def detect_robot(frame, aruco_dict, parameters, robot_marker_id=42, homography_matrix=None):
@@ -151,7 +119,7 @@ def detect_robot(frame, aruco_dict, parameters, robot_marker_id=42, homography_m
 
     # Get robot marker
     idx = np.where(ids.flatten() == robot_marker_id)[0][0]
-    robot_corners = corners[idx][0]
+    robot_corners = corners[int(idx)][0]
 
     # Calculate center point
     center_x = np.mean(robot_corners[:, 0])
@@ -196,16 +164,16 @@ def ball_color_calibration(camera_index=0):
     lower_color = np.array([25, 50, 50])
     upper_color = np.array([65, 255, 255])
 
-    # Create trackbars window
+    # Create a trackbars window
     cv2.namedWindow('Ball Color Calibration')
 
     # Create trackbars
-    cv2.createTrackbar('H min', 'Ball Color Calibration', lower_color[0], 179, lambda x: None)
-    cv2.createTrackbar('S min', 'Ball Color Calibration', lower_color[1], 255, lambda x: None)
-    cv2.createTrackbar('V min', 'Ball Color Calibration', lower_color[2], 255, lambda x: None)
-    cv2.createTrackbar('H max', 'Ball Color Calibration', upper_color[0], 179, lambda x: None)
-    cv2.createTrackbar('S max', 'Ball Color Calibration', upper_color[1], 255, lambda x: None)
-    cv2.createTrackbar('V max', 'Ball Color Calibration', upper_color[2], 255, lambda x: None)
+    cv2.createTrackbar('H min', 'Ball Color Calibration', int(lower_color[0]), 179, lambda _: None)
+    cv2.createTrackbar('S min', 'Ball Color Calibration', int(lower_color[1]), 255, lambda _: None)
+    cv2.createTrackbar('V min', 'Ball Color Calibration', int(lower_color[2]), 255, lambda _: None)
+    cv2.createTrackbar('H max', 'Ball Color Calibration', int(upper_color[0]), 179, lambda _: None)
+    cv2.createTrackbar('S max', 'Ball Color Calibration', int(upper_color[1]), 255, lambda _: None)
+    cv2.createTrackbar('V max', 'Ball Color Calibration', int(upper_color[2]), 255, lambda _: None)
 
     print("Ball color calibration started.")
     print("Place the ball in the camera view and adjust sliders until only the ball is visible in the mask.")

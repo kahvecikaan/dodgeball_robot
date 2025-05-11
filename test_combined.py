@@ -6,7 +6,7 @@ import argparse
 import csv
 import time
 
-import cv2
+import cv2 
 import numpy as np
 
 from object_detection import detect_ball_color, detect_robot
@@ -125,8 +125,8 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     cv2.namedWindow(window_name)
 
     # Load default tennis ball color (narrowed range for better specificity)
-    lower_color = np.array([28, 80, 80])
-    upper_color = np.array([60, 255, 255])
+    lower_color = np.array([78, 88, 142])
+    upper_color = np.array([110, 255, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
@@ -171,11 +171,13 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
     # Initialize dodge command module
     dodge_module = None
-    if not disable_dodge:
+    if not disable_dodge: #disable_dodge
         try:
             dodge_module = DodgeCommandModule(port=arduino_port, robot_width=robot_width)
             if dodge_module.connected:
                 print("Dodge command module connected")
+                connected_port = dodge_module.get_connected_port()
+                #print(f"Dodge command module connected on port: {connected_port}")  # Debug
             else:
                 print("Failed to connect to physical Arduino.")
                 print("Running in simulation mode - dodge commands will processed but not sent to hardware")
@@ -376,6 +378,9 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
             # Draw dodge target position if active
             if dodge_module and dodge_module.connected and dodge_module.is_dodging and dodge_module.target_position is not None:
+                
+                #if dodge_module.is_dodging:
+                    #print("Dodgemodule is dodging") debug
                 # Calculate target position in playground coordinates
                 width, height = playground_dims
                 target_x = dodge_module.target_position
@@ -465,8 +470,9 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
             # Detect ball using basic color method - ignore mask return value as we don't use it
-            ball_pos, _ = detect_ball_color(frame, lower_color, upper_color, min_radius=10)
+            ball_pos, _ = detect_ball_color(frame, lower_color, upper_color)
 
+            
             # Update temporal consistency tracking
             if ball_pos:
                 detection_counter += 1
@@ -873,10 +879,18 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
             if dodge_module and dodge_module.connected and robot_position is not None:
                 dodge_module.test_dodge_left(20.0)
                 print("Test dodge left initiated")
+                if dodge_module.connected:
+                    command = {"command": "dodge", "parameters": {"direction": "left", "distance": 20}}
+                    #print(f"Sending command: {command}")  # Debug
+                    success = dodge_module.send_command(command)
+                    if success:
+                        print("Command sent successfully")
+                    else:
+                        print("Failed to send command")
 
     # Clean up
     if dodge_module and dodge_module.connected:
-        dodge_module.close()
+        dodge_module.close() #come back to this
 
     camera.release()
     cv2.destroyAllWindows()
@@ -1167,7 +1181,7 @@ def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing
     cv2.rectangle(frame,
                   (y_label_x - 5, y_label_y - y_text_size[1] // 2 - 5),
                   (y_label_x + y_text_size[0] + 5, y_label_y + y_text_size[1] // 2 + 5),
-                  COLORS['bg_dark'], -1)
+                  COLORS['bg_dark'], -1)    
 
     cv2.putText(frame, y_label,
                 (y_label_x, y_label_y + y_text_size[1] // 2),

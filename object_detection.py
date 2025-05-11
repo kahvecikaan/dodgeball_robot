@@ -25,7 +25,7 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
     # Convert to HSV for better color segmentation
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Create binary mask where pixels within the specified range becomes white and all others become black
+    # Create binary mask where pixels within the specified range become white and all others become black
     mask = cv2.inRange(hsv, lower_color, upper_color)
 
     # Apply morphological operations to remove noise
@@ -40,29 +40,36 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
     if not contours:
         return None, mask
 
-    # Find the largest contour (presumably the ball)
-    largest_contour = max(contours, key=cv2.contourArea)
+    # Variables to track the most circular contour
+    best_circle = None
+    best_circularity = 0
 
-    # Check if contour is big enough
-    if cv2.contourArea(largest_contour) < np.pi * min_radius ** 2:
-        return None, mask
+    # Iterate through all contours
+    for contour in contours:
+        # Check if contour is big enough
+        area = cv2.contourArea(contour)
+        if area < np.pi * min_radius ** 2:
+            continue
 
-    # Find the minimum enclosing circle
-    ((x, y), radius) = cv2.minEnclosingCircle(largest_contour)
+        # Calculate circularity
+        perimeter = cv2.arcLength(contour, True)
+        circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
 
-    # Additional check for circularity
-    area = cv2.contourArea(largest_contour)
-    perimeter = cv2.arcLength(largest_contour, True)
-    circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+        # Update the best circle if this contour is more circular
+        if circularity > best_circularity and circularity > 0.6:  # Threshold for circularity
+            ((x, y), radius) = cv2.minEnclosingCircle(contour)
+            if radius > min_radius:  # Ensure the radius is above the minimum
+                best_circle = (int(x), int(y), int(radius))
+                best_circularity = circularity
 
-    # If the contour is approximately circular (circularity > 0.6) and big enough
-    if circularity > 0.6 and radius > min_radius:
-        return (int(x), int(y), int(radius)), mask
+    # Return the most circular contour if found
+    if best_circle:
+        return best_circle, mask
 
     return None, mask
 
 
-def detect_ball_hough(frame, min_radius=10, max_radius=100):
+def detect_ball_hough(frame, min_radius=5, max_radius=100):
     """
     Detect a ball using Hough Circle detection.
     Useful if the ball has a clear circular shape but variable color.
@@ -192,9 +199,9 @@ def ball_color_calibration(camera_index=0):
     # Initialize camera
     camera = cv2.VideoCapture(camera_index)
 
-    # Default color range for a tennis ball
-    lower_color = np.array([25, 50, 50])
-    upper_color = np.array([65, 255, 255])
+    # Default color range for a tennis ball 
+    lower_color = np.array([77, 104, 116])
+    upper_color = np.array([118, 251, 255])
 
     # Create trackbars window
     cv2.namedWindow('Ball Color Calibration')

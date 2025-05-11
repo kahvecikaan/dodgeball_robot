@@ -125,8 +125,8 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     cv2.namedWindow(window_name)
 
     # Load default tennis ball color (narrowed range for better specificity)
-    lower_color = np.array([28, 80, 80])
-    upper_color = np.array([60, 255, 255])
+    lower_color = np.array([77, 104, 116])
+    upper_color = np.array([118, 251, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
@@ -1180,7 +1180,7 @@ def draw_coordinate_grid(frame, homography_matrix, playground_dims, grid_spacing
     cv2.rectangle(frame,
                   (y_label_x - 5, y_label_y - y_text_size[1] // 2 - 5),
                   (y_label_x + y_text_size[0] + 5, y_label_y + y_text_size[1] // 2 + 5),
-                  COLORS['bg_dark'], -1)
+                  COLORS['bg_dark'], -1)    
 
     cv2.putText(frame, y_label,
                 (y_label_x, y_label_y + y_text_size[1] // 2),

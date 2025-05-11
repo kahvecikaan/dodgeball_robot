@@ -125,8 +125,8 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     cv2.namedWindow(window_name)
 
     # Load default tennis ball color (narrowed range for better specificity)
-    lower_color = np.array([77, 104, 116])
-    upper_color = np.array([118, 251, 255])
+    lower_color = np.array([78, 88, 142])
+    upper_color = np.array([110, 255, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
@@ -470,8 +470,9 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
             # Detect ball using basic color method - ignore mask return value as we don't use it
-            ball_pos, _ = detect_ball_color(frame, lower_color, upper_color, min_radius=10)
+            ball_pos, _ = detect_ball_color(frame, lower_color, upper_color)
 
+            
             # Update temporal consistency tracking
             if ball_pos:
                 detection_counter += 1

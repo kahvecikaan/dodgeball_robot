@@ -8,7 +8,7 @@ import numpy as np
 from playground_setup import transform_point
 
 
-def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
+def detect_ball_color(frame, lower_color, upper_color, min_radius=2):
     """
     Detect a ball in the frame based on color thresholding.
 
@@ -56,7 +56,7 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
         circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
 
         # Update the best circle if this contour is more circular
-        if circularity > best_circularity and circularity > 0.6:  # Threshold for circularity
+        if circularity > best_circularity and circularity > 0.1:  # Threshold for circularity
             ((x, y), radius) = cv2.minEnclosingCircle(contour)
             if radius > min_radius:  # Ensure the radius is above the minimum
                 best_circle = (int(x), int(y), int(radius))
@@ -69,7 +69,7 @@ def detect_ball_color(frame, lower_color, upper_color, min_radius=5):
     return None, mask
 
 
-def detect_ball_hough(frame, min_radius=5, max_radius=100):
+def detect_ball_hough(frame, min_radius=2, max_radius=100):
     """
     Detect a ball using Hough Circle detection.
     Useful if the ball has a clear circular shape but variable color.
@@ -96,8 +96,8 @@ def detect_ball_hough(frame, min_radius=5, max_radius=100):
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
-        dp=1,
-        minDist=50,
+        dp=0.1,
+        minDist=2,
         param1=100,
         param2=30,
         minRadius=min_radius,
@@ -200,8 +200,8 @@ def ball_color_calibration(camera_index=0):
     camera = cv2.VideoCapture(camera_index)
 
     # Default color range for a tennis ball 
-    lower_color = np.array([77, 104, 116])
-    upper_color = np.array([118, 251, 255])
+    lower_color = np.array([78, 88, 142])
+    upper_color = np.array([110, 255, 255])
 
     # Create trackbars window
     cv2.namedWindow('Ball Color Calibration')
@@ -251,6 +251,10 @@ def ball_color_calibration(camera_index=0):
         cv2.imshow('Original', frame)
         cv2.imshow('Mask', mask)
         cv2.imshow('Result', result)
+
+        # Resize the result for better visibility
+        result_resized = cv2.resize(result, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
+        cv2.imshow('Result Resized', result_resized)
 
         # Handle key presses
         key = cv2.waitKey(1) & 0xFF

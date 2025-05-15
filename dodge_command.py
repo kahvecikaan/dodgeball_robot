@@ -61,7 +61,7 @@ class DodgeCommandModule:
     """
     Module for sending dodge commands to the robot based on the trajectory predictions.
     """
-    def __init__(self, port=None, baud_rate=115200, robot_width=15):
+    def __init__(self, port=None, baud_rate=9600, robot_width=15):
         """Initialize the dodge command module"""
         # Serial communication setup
         self.port = port
@@ -132,6 +132,12 @@ class DodgeCommandModule:
             # Convert to JSON and add newline as terminator
             command_json = json.dumps(command_dict) + "\n"
             self.ser.write(command_json.encode())
+            time.sleep(0.1)
+            try:
+                ack = self.ser.readline().decode().strip()
+                print("<<< Arduino says:", ack)
+            except Exception as e:
+                print("Error reading ACK:", e)
             self.last_command_time = time.time()
             print(f"Sent: {command_json.strip()}")
 

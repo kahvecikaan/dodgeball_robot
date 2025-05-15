@@ -149,6 +149,7 @@ def detect_robot(frame, aruco_dict, parameters, robot_marker_id=42, homography_m
 def ball_color_calibration(camera_index=0):
     """
     Interactive tool to calibrate ball color detection.
+    Optimized version for better performance on macOS.
 
     Args:
         camera_index: Camera index to use
@@ -160,6 +161,10 @@ def ball_color_calibration(camera_index=0):
     # Initialize camera
     camera = cv2.VideoCapture(camera_index)
 
+    # Try to reduce resolution for better performance
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
     # Default color range for a tennis ball
     lower_color = np.array([25, 50, 50])
     upper_color = np.array([65, 255, 255])
@@ -167,17 +172,50 @@ def ball_color_calibration(camera_index=0):
     # Create a trackbars window
     cv2.namedWindow('Ball Color Calibration')
 
-    # Create trackbars
-    cv2.createTrackbar('H min', 'Ball Color Calibration', int(lower_color[0]), 179, lambda _: None)
-    cv2.createTrackbar('S min', 'Ball Color Calibration', int(lower_color[1]), 255, lambda _: None)
-    cv2.createTrackbar('V min', 'Ball Color Calibration', int(lower_color[2]), 255, lambda _: None)
-    cv2.createTrackbar('H max', 'Ball Color Calibration', int(upper_color[0]), 179, lambda _: None)
-    cv2.createTrackbar('S max', 'Ball Color Calibration', int(upper_color[1]), 255, lambda _: None)
-    cv2.createTrackbar('V max', 'Ball Color Calibration', int(upper_color[2]), 255, lambda _: None)
+    # Variables to store trackbar values
+    h_min, s_min, v_min = lower_color
+    h_max, s_max, v_max = upper_color
+
+    # Define callback functions that actually update the values
+    def update_h_min(val):
+        nonlocal h_min
+        h_min = val
+
+    def update_s_min(val):
+        nonlocal s_min
+        s_min = val
+
+    def update_v_min(val):
+        nonlocal v_min
+        v_min = val
+
+    def update_h_max(val):
+        nonlocal h_max
+        h_max = val
+
+    def update_s_max(val):
+        nonlocal s_max
+        s_max = val
+
+    def update_v_max(val):
+        nonlocal v_max
+        v_max = val
+
+    # Create trackbars with actual callback functions
+    cv2.createTrackbar('H min', 'Ball Color Calibration', int(lower_color[0]), 179, update_h_min)
+    cv2.createTrackbar('S min', 'Ball Color Calibration', int(lower_color[1]), 255, update_s_min)
+    cv2.createTrackbar('V min', 'Ball Color Calibration', int(lower_color[2]), 255, update_v_min)
+    cv2.createTrackbar('H max', 'Ball Color Calibration', int(upper_color[0]), 179, update_h_max)
+    cv2.createTrackbar('S max', 'Ball Color Calibration', int(upper_color[1]), 255, update_s_max)
+    cv2.createTrackbar('V max', 'Ball Color Calibration', int(upper_color[2]), 255, update_v_max)
 
     print("Ball color calibration started.")
     print("Place the ball in the camera view and adjust sliders until only the ball is visible in the mask.")
     print("Press 'q' to save and exit, 'r' to reset to defaults.")
+
+    # For macOS performance, process frames less frequently
+    frame_counter = 0
+    process_every_n_frames = 2  # Process every 2nd frame
 
     while True:
         # Read frame
@@ -186,15 +224,29 @@ def ball_color_calibration(camera_index=0):
             print("Failed to capture frame. Check camera connection.")
             break
 
-        # Get current trackbar values
-        h_min = cv2.getTrackbarPos('H min', 'Ball Color Calibration')
-        s_min = cv2.getTrackbarPos('S min', 'Ball Color Calibration')
-        v_min = cv2.getTrackbarPos('V min', 'Ball Color Calibration')
-        h_max = cv2.getTrackbarPos('H max', 'Ball Color Calibration')
-        s_max = cv2.getTrackbarPos('S max', 'Ball Color Calibration')
-        v_max = cv2.getTrackbarPos('V max', 'Ball Color Calibration')
+        # Increment frame counter
+        frame_counter += 1
 
-        # Update color ranges
+        # Only process every nth frame
+        if frame_counter % process_every_n_frames != 0:
+            # Still handle key presses even when not processing frames
+            key = cv2.waitKey(5) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('r'):
+                # Reset to defaults
+                cv2.setTrackbarPos('H min', 'Ball Color Calibration', 25)
+                cv2.setTrackbarPos('S min', 'Ball Color Calibration', 50)
+                cv2.setTrackbarPos('V min', 'Ball Color Calibration', 50)
+                cv2.setTrackbarPos('H max', 'Ball Color Calibration', 65)
+                cv2.setTrackbarPos('S max', 'Ball Color Calibration', 255)
+                cv2.setTrackbarPos('V max', 'Ball Color Calibration', 255)
+            continue
+
+        # Resize frame for better performance
+        frame = cv2.resize(frame, (640, 480))
+
+        # Update color ranges from trackbar variables
         lower_color = np.array([h_min, s_min, v_min])
         upper_color = np.array([h_max, s_max, v_max])
 
@@ -213,17 +265,17 @@ def ball_color_calibration(camera_index=0):
         cv2.imshow('Mask', mask)
         cv2.imshow('Result', result)
 
-        # Handle key presses
-        key = cv2.waitKey(1) & 0xFF
+        # Add a slightly longer wait time to allow macOS to process GUI events
+        key = cv2.waitKey(30) & 0xFF
         if key == ord('q'):
             # Save and exit
             break
         elif key == ord('r'):
             # Reset to defaults
-            cv2.setTrackbarPos('H min', 'Ball Color Calibration', 5)
-            cv2.setTrackbarPos('S min', 'Ball Color Calibration', 100)
-            cv2.setTrackbarPos('V min', 'Ball Color Calibration', 100)
-            cv2.setTrackbarPos('H max', 'Ball Color Calibration', 15)
+            cv2.setTrackbarPos('H min', 'Ball Color Calibration', 25)
+            cv2.setTrackbarPos('S min', 'Ball Color Calibration', 50)
+            cv2.setTrackbarPos('V min', 'Ball Color Calibration', 50)
+            cv2.setTrackbarPos('H max', 'Ball Color Calibration', 65)
             cv2.setTrackbarPos('S max', 'Ball Color Calibration', 255)
             cv2.setTrackbarPos('V max', 'Ball Color Calibration', 255)
 

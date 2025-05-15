@@ -1,5 +1,5 @@
 """
-Enhanced combined test script for ball-dodging robot vision system.
+Combined test script for ball-dodging robot vision system.
 Includes trajectory prediction, robot detection, collision warning and dodge commands.
 """
 import argparse
@@ -125,8 +125,8 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
     cv2.namedWindow(window_name)
 
     # Load default tennis ball color (narrowed range for better specificity)
-    lower_color = np.array([28, 80, 80])
-    upper_color = np.array([60, 255, 255])
+    lower_color = np.array([25, 85, 50])
+    upper_color = np.array([85, 255, 255])
 
     # Variables to store coordinate system data
     homography_matrix = None
@@ -163,7 +163,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
     # Robot tracking variables
     robot_position = None
-    robot_width = 15  # Width of robot in cm (adjust as needed)
+    robot_width = 30 # Width of robot in cm (adjust as needed)
     collision_detected = False
     collision_point = None
 
@@ -199,7 +199,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
         (28, 181, 163),  # Pea
     ]
 
-    print("\nEnhanced Ball Detection and Robot Collision System")
+    print("\nBall Detection and Robot Collision System")
     print("=================================================")
     print("SETUP INSTRUCTIONS:")
     print("1. Place the four ArUco markers (IDs 0, 1, 2, 3) in a rectangular configuration")
@@ -512,7 +512,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                         # Predict future trajectory
                         predicted_trajectory = kalman_tracker.predict_trajectory(num_steps=30)
 
-                        # Find where trajectory intersects with maximum y
+                        # Find where the trajectory intersects with maximum y
                         landing_point = find_landing_point(predicted_trajectory, height)
 
                         # Update persistent prediction if we have a valid landing point
@@ -533,7 +533,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
 
                 # Calculate speed if we have enough history
                 if len(ball_playground_positions) >= 3:
-                    # Calculate average velocity over last few frames
+                    # Calculate average velocity over the last few frames
                     velocities = []
                     for i in range(1, min(5, len(ball_playground_positions))):
                         dx = ball_playground_positions[-i][0] - ball_playground_positions[-i - 1][0]
@@ -783,7 +783,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
         cv2.imshow(window_name, display_frame)
 
         # Handle key presses
-        key = cv2.waitKey(1)
+        key = cv2.waitKey(30)
         if key == ord('q'):
             # Quit without saving
             if throw_counter > 0 and all_throws:
@@ -938,7 +938,7 @@ def find_landing_point(trajectory, max_y):
 
 def check_collision(landing_point, robot_position, robot_width, threshold=5):
     """
-    Check if predicted landing point will collide with the robot.
+    Check if the predicted landing point will collide with the robot.
 
     Args:
         landing_point: (x, y) coordinates of predicted landing point
@@ -952,7 +952,7 @@ def check_collision(landing_point, robot_position, robot_width, threshold=5):
     if landing_point is None or robot_position is None:
         return False
 
-    # Calculate distance between landing point x and robot x
+    # Calculate the distance between landing point x and robot x
     distance = abs(landing_point[0] - robot_position)
 
     # Check if landing point is within robot's width plus threshold
@@ -987,8 +987,8 @@ def draw_predicted_trajectory(frame, trajectory, homography_matrix, color):
     # Draw a semi-transparent area under the trajectory for better visibility
     overlay = frame.copy()
 
-    # Draw filled curve with semi-transparency
-    if len(points_array) > 4:  # Need enough points for smooth curve
+    # Draw a filled curve with semi-transparency
+    if len(points_array) > 4:  # Need enough points for a smooth curve
         # Create a wider polygon for fill
         hull = cv2.convexHull(points_array)
         cv2.fillConvexPoly(overlay, hull, (*color, 50))  # Semi-transparent fill
@@ -1001,7 +1001,7 @@ def draw_predicted_trajectory(frame, trajectory, homography_matrix, color):
     for i in range(1, len(pixel_points)):
         # Thicker lines for future points (opposite of real trajectory)
         progress = i / len(pixel_points)
-        thickness = 1 + int((1 - progress) * 2)  # 1-3 pixels, thicker at beginning
+        thickness = 1 + int((1 - progress) * 2)  # 1-3 pixels, thicker at the beginning
 
         cv2.line(frame, pixel_points[i - 1], pixel_points[i], color, thickness, cv2.LINE_AA)
 

@@ -18,6 +18,10 @@ The project was a collaboration between Electrical/Electronic Engineering (EEE) 
 - Data recording capabilities for trajectory analysis
 
 
+### For BAU students
+The playground and ArUco markers were novelties that we came up with so do not directly
+copy the project, otherwise it would be obvious :)
+
 ## System Components
 
 ### Hardware Components

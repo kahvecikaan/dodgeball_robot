@@ -339,7 +339,7 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                 if not show_previous_throws:  # Only show if not displaying previous throws
                     # Calculate robot position in playground coordinates
                     width, height = playground_dims
-                    robot_y = height  # Robot is at maximum y
+                    robot_y = height - 10  # Perspective fix
 
                     # Convert to pixel coordinates for display
                     robot_center_pixel = inverse_transform_point((robot_position, robot_y), homography_matrix)
@@ -867,11 +867,11 @@ def test_combined_system(camera_index=0, csv_filename="throw_data.csv", arduino_
                 print("Emergency stop sent")
         elif key == ord('d'):  # Test dodge right
             if dodge_module and dodge_module.connected and robot_position is not None:
-                dodge_module.test_dodge_right(20.0)
+                dodge_module.test_dodge_right(40.0)
                 print("Test dodge right initiated")
         elif key == ord('a'):   # Test dodge left
             if dodge_module and dodge_module.connected and robot_position is not None:
-                dodge_module.test_dodge_left(20.0)
+                dodge_module.test_dodge_left(40.0)
                 print("Test dodge left initiated")
 
     # Clean up

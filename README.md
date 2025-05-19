@@ -18,8 +18,8 @@ The project was a collaboration between Electrical/Electronic Engineering (EEE) 
 - Data recording capabilities for trajectory analysis
 
 
-### For BAU students
-The playground and ArUco markers were novelties that we came up with so do not directly
+## For BAU students
+The playground and using ArUco markers were novelties that we came up with so do not directly
 copy the project, otherwise it would be obvious :)
 
 ## System Components
@@ -155,14 +155,14 @@ Arduino that can receive and process JSON commands in the following format:
 ### Robot and Playground Setup
 ![Robot setup](images/robot_setup.png)
 
-*Fig 1: The basic setup showing the robot with attached ArUco marker for position tracking 
+*Fig. 1: The basic setup showing the robot with attached ArUco marker for position tracking 
 and the calibrated playground coordinate system.*
 
 
 ### Active Collision Detection and Dodging
 ![Robot detecting a collision](images/collision_detection.png)
 
-*Fig 2: The system detecting a potential collision and issuing a dodge command to the robot. 
+*Fig. 2: The system detecting a potential collision and issuing a dodge command to the robot. 
 The blue trajectory shows the predicted path of the ball, with the red warning indicating collision risk.*
 
 
@@ -170,7 +170,5 @@ The blue trajectory shows the predicted path of the ball, with the red warning i
 ### Recorded Trajectory Visualization
 ![Collision detection](images/trajectory_visualization.png)
 
-*Fig 3: The basic setup showing the robot with attached ArUco marker for position tracking 
-and the calibrated playground coordinate system.*
-
-
+*Fig. 3: Visualization of 10 recorded ball trajectories, demonstrating the system's ability to track 
+and visualize various throwing patterns.*
